@@ -1,0 +1,31 @@
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "cbrmb"
+version = "0.1.0"
+description = "Microbiome analysis helpers: statistical tests, feature filtering, ordination, longitudinal normalization"
+authors = [{ name = "H. Carlo Maurer" }]
+readme = "README.md"
+requires-python = ">=3.9"
+dependencies = [
+    "numpy>=1.22",
+    "pandas>=2.2.0",       # groupby.apply semantics used by the *_test helpers
+    "scipy>=1.11.0",
+    "statsmodels>=0.13",   # multipletests
+    "scikit-learn>=1.1",   # MDS in ordination
+]
+
+[project.optional-dependencies]
+anndata = ["anndata>=0.9"]
+umap = ["umap-learn>=0.5"]
+r = ["rpy2>=3.5"]          # plus R packages: ape, phangorn, GUniFrac, NbClust
+all = ["cbrmb[anndata,umap,r]"]
+test = ["pytest>=7"]
+
+[tool.setuptools.packages.find]
+include = ["cbrmb*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
