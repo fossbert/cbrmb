@@ -2,7 +2,20 @@
 
 from __future__ import annotations
 
+import numpy as np
+import pandas as pd
+
 from . import require_rpy2
+
+
+def square_array(distmat):
+    """Return a square distance matrix as a plain 2d ``ndarray``."""
+    if isinstance(distmat, pd.DataFrame):
+        distmat = distmat.values
+    arr = np.asarray(distmat)
+    if arr.ndim != 2 or arr.shape[0] != arr.shape[1]:
+        raise ValueError(f"expected a square distance matrix, got shape {arr.shape}")
+    return arr
 
 
 def numpy_to_rpy2(p_in):

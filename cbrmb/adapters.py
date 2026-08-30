@@ -22,6 +22,8 @@ __all__ = [
     "alpha_diversity",
     "filter_zotu",
     "filter_tax",
+    "calc_gunifrac",
+    "best_clusters",
 ]
 
 
@@ -95,3 +97,26 @@ def filter_tax(
     if verbose:
         print(f"Filtered to {df_sub.shape[1]} of {n_all} taxa.")
     return df_sub.copy()
+
+
+def calc_gunifrac(adata, tree_path, *, layer=None, alpha=0.5, **kwargs):
+    """Generalized UniFrac on ``adata`` (needs the ``r`` extra).
+
+    Thin wrapper: :func:`cbrmb.rbackend.unifrac.calc_gunifrac` on
+    :func:`zotus(adata, layer=layer) <zotus>`.
+    """
+    from .rbackend.unifrac import calc_gunifrac as _calc_gunifrac
+
+    return _calc_gunifrac(zotus(adata, layer=layer), tree_path, alpha=alpha, **kwargs)
+
+
+def best_clusters(adata, name, *, gunifrac_key="gunifrac", **filter_kwargs):
+    """NbClust partition for ``adata`` (needs the ``r`` extra).
+
+    Filters the zOTU table with :func:`filter_zotu` (``**filter_kwargs``) and
+    uses ``adata.obsp[gunifrac_key]`` as the dissimilarity.
+    """
+    from .rbackend.clustering import best_clusters as _best_clusters
+
+    counts = filter_zotu(adata, verbose=False, **filter_kwargs)
+    return _best_clusters(counts, adata.obsp[gunifrac_key], name)
