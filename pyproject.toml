@@ -6,9 +6,19 @@ build-backend = "setuptools.build_meta"
 name = "cbrmb"
 version = "0.1.0"
 description = "Microbiome analysis helpers: statistical tests, feature filtering, ordination, longitudinal normalization"
-authors = [{ name = "H. Carlo Maurer" }]
+authors = [{ name = "H. Carlo Maurer", email = "h.carlo.maurer@gmail.com" }]
 readme = "README.md"
+license = { text = "MIT" }
 requires-python = ">=3.9"
+keywords = ["microbiome", "16S", "amplicon", "differential-abundance", "unifrac", "permanova"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Topic :: Scientific/Engineering :: Bio-Informatics",
+]
 dependencies = [
     "numpy>=1.22",
     "pandas>=2.2.0",       # groupby.apply semantics used by the *_test helpers
@@ -23,6 +33,10 @@ umap = ["umap-learn>=0.5"]
 r = ["rpy2>=3.5"]          # plus R packages: ape, phangorn, GUniFrac, NbClust
 all = ["cbrmb[anndata,umap,r]"]
 test = ["pytest>=7"]
+
+[project.urls]
+Repository = "https://github.com/fossbert/cbrmb"
+Issues = "https://github.com/fossbert/cbrmb/issues"
 
 [tool.setuptools.packages.find]
 include = ["cbrmb*"]
