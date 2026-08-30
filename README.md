@@ -31,7 +31,7 @@ pip install -e '.[all,test]'
 | `cbrmb.rbackend.permanova` | `subject_variation`, `screen_confounder`, `test_confounder`, `screen_effect_modifiers`, `betadisper`, `remove_confounder_nan` |
 | `cbrmb.rbackend.clustering` | `best_clusters` |
 | `cbrmb.rbackend.contingency` | `fisher_exact_rc` (r x c fallback for `fisher_test`) |
-| `cbrmb.rbackend.kernel` | `cskat`, `glmm_mirkat` (needs R package `MiRKAT`) |
+| `cbrmb.rbackend.kernel` | `glmm_mirkat`, `cskat` (needs CRAN package `MiRKAT`) |
 
 The hot functions are re-exported at the top level:
 
@@ -65,11 +65,19 @@ mb.betadisper(dist, meta["group"], subject=subj)          # dispersion check, sa
 ```
 
 For adjusted multi-covariate screening with a random subject effect there is
-`cbrmb.rbackend.kernel.cskat` / `glmm_mirkat` (CSKAT / GLMM-MiRKAT). These need
-the R package `MiRKAT`:
+`cbrmb.rbackend.kernel.glmm_mirkat` (`MiRKAT::GLMMMiRKAT`; Gaussian / binomial /
+Poisson outcome) and `cskat` (its Gaussian + Davies special case). Loop candidate
+covariates as the outcome `y`, adjusting for the rest:
+
+```python
+mb.glmm_mirkat(dist, y=meta["disease_active"], covariates=meta[["age", "sex"]],
+               subject=meta["patient_id"], model="binomial")
+```
+
+`MiRKAT` is a CRAN package (not on conda-forge):
 
 ```bash
-mamba install -n microbiome -c conda-forge r-mirkat   # or, in R: install.packages("MiRKAT")
+Rscript -e 'install.packages("MiRKAT")'   # pulls CompQuadForm, GLMMadaptive, PearsonDS
 ```
 
 Without `subject=`, all of these behave exactly as before.
