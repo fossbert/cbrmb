@@ -28,9 +28,10 @@ pip install -e '.[all,test]'
 | `cbrmb.ordination` | `calc_mds`, `calc_umap` |
 | `cbrmb.longitudinal` | `david_recipe` and helpers (David et al. 2014) |
 | `cbrmb.rbackend.unifrac` | `calc_gunifrac` |
-| `cbrmb.rbackend.permanova` | `screen_confounder`, `test_confounder`, `remove_confounder_nan` |
+| `cbrmb.rbackend.permanova` | `subject_variation`, `screen_confounder`, `test_confounder`, `screen_effect_modifiers`, `betadisper`, `remove_confounder_nan` |
 | `cbrmb.rbackend.clustering` | `best_clusters` |
 | `cbrmb.rbackend.contingency` | `fisher_exact_rc` (r x c fallback for `fisher_test`) |
+| `cbrmb.rbackend.kernel` | `cskat`, `glmm_mirkat` (needs R package `MiRKAT`) |
 
 The hot functions are re-exported at the top level:
 
@@ -40,6 +41,38 @@ import cbrmb as mb
 zotus = mb.filter_zotu(adata)                       # AnnData -> filtered DataFrame
 res = mb.mwu_test(zotus, adata.obs["group"])        # feature-wise MWU + BH-FDR
 ```
+
+## Repeated measures (multiple samples per subject)
+
+Default PERMANOVA permutes all samples freely and is **anti-conservative** when a
+person contributes several samples. Pass `subject=` and `test_confounder` /
+`screen_confounder` pick a restricted-permutation scheme per covariate (via the R
+`permute` package):
+
+| covariate behaviour | `level` | scheme |
+| --- | --- | --- |
+| constant within each subject (sex, genotype, baseline exposure) | `between` | permute whole subjects (`Plots(strata=subject, type="free")`, `Within("none")`); `subject` not in the model |
+| varies within subjects (timepoint, disease activity, medication over time, sample type) | `within` / `mixed` | `subject` as first model term + permute within subject (`how(blocks=subject)`) |
+
+```python
+import cbrmb as mb
+
+mb.subject_variation(meta, subject)                       # see how each column is classified
+mb.screen_confounder(dist, meta, subject=meta["patient_id"])   # var, level, n, scheme, r2, pval, fdr
+mb.test_confounder(dist, meta["sex"], subject=subj, reduce="medoid")  # or collapse to 1 sample/subject
+mb.screen_effect_modifiers(dist, meta["group"], meta[["sex", "age"]], subject=subj)
+mb.betadisper(dist, meta["group"], subject=subj)          # dispersion check, same scheme logic
+```
+
+For adjusted multi-covariate screening with a random subject effect there is
+`cbrmb.rbackend.kernel.cskat` / `glmm_mirkat` (CSKAT / GLMM-MiRKAT). These need
+the R package `MiRKAT`:
+
+```bash
+mamba install -n microbiome -c conda-forge r-mirkat   # or, in R: install.packages("MiRKAT")
+```
+
+Without `subject=`, all of these behave exactly as before.
 
 ## Migrating from `utils.py` / `tstools.py`
 

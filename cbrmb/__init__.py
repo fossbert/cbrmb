@@ -27,7 +27,14 @@ from .filtering import filter_features, filter_prevalence, filter_rel_abundance
 from .longitudinal import david_recipe
 from .ordination import calc_mds, calc_umap
 from .pvalues import cut_p, fdr
-from .rbackend.permanova import screen_confounder, test_confounder
+from .rbackend.kernel import cskat, glmm_mirkat
+from .rbackend.permanova import (
+    betadisper,
+    screen_confounder,
+    screen_effect_modifiers,
+    subject_variation,
+    test_confounder,
+)
 from .stats import (
     corr_test,
     fisher_test,
@@ -70,9 +77,14 @@ __all__ = [
     "calc_umap",
     # longitudinal
     "david_recipe",
-    # confounder screening (R backend, lazy)
+    # confounder / effect-modifier screening (R backend, lazy)
+    "subject_variation",
     "screen_confounder",
     "test_confounder",
+    "screen_effect_modifiers",
+    "betadisper",
+    "cskat",
+    "glmm_mirkat",
     # clinical
     "bernoulli_var",
     "filter_bernoulli",
