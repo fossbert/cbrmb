@@ -12,7 +12,7 @@ adapters pull those tables out of an `AnnData` object.
 pip install -e .                 # core: numpy, pandas, scipy, statsmodels, scikit-learn
 pip install -e '.[anndata]'      # AnnData adapters
 pip install -e '.[umap]'         # calc_umap
-pip install -e '.[r]'            # UniFrac / adonis / NbClust / r x c Fisher (needs R + ape, phangorn, GUniFrac, NbClust)
+pip install -e '.[r]'            # adonis / NbClust / r x c Fisher (needs R + ape, phangorn, GUniFrac, NbClust)
 pip install -e '.[all,test]'
 ```
 
@@ -25,9 +25,10 @@ pip install -e '.[all,test]'
 | `cbrmb.filtering` | `filter_prevalence`, `filter_rel_abundance`, `filter_features` |
 | `cbrmb.clinical` | `bernoulli_var`, `filter_bernoulli` |
 | `cbrmb.adapters` | `zotus`, `taxa`, `alpha_diversity`, `filter_zotu`, `filter_tax`, `calc_gunifrac`, `best_clusters` |
+| `cbrmb.unifrac` | `generalized_unifrac`, `calc_gunifrac`, `read_newick`, `root_at_midpoint` (pure Python, no R) |
 | `cbrmb.ordination` | `calc_mds`, `calc_umap` |
 | `cbrmb.longitudinal` | `david_recipe` and helpers (David et al. 2014) |
-| `cbrmb.rbackend.unifrac` | `calc_gunifrac` |
+| `cbrmb.rbackend.unifrac` | `calc_gunifrac` (legacy R path; `calc_gunifrac(..., backend="r")`) |
 | `cbrmb.rbackend.permanova` | `subject_variation`, `screen_confounder`, `test_confounder`, `screen_effect_modifiers`, `betadisper`, `remove_confounder_nan` |
 | `cbrmb.rbackend.clustering` | `best_clusters` |
 | `cbrmb.rbackend.contingency` | `fisher_exact_rc` (r x c fallback for `fisher_test`) |
@@ -41,6 +42,32 @@ import cbrmb as mb
 zotus = mb.filter_zotu(adata)                       # AnnData -> filtered DataFrame
 res = mb.mwu_test(zotus, adata.obs["group"])        # feature-wise MWU + BH-FDR
 ```
+
+## Generalized UniFrac (no R)
+
+`cbrmb.unifrac` is a pure-NumPy port of `GUniFrac::GUniFrac` plus a
+`phangorn::midpoint` equivalent; it reproduces the R pipeline to machine
+precision (verified against live R on real ZOTU trees). It replaces this recipe:
+
+```r
+tree <- read.tree("ZOTUs-Tree-nj.tre")
+tree$tip.label <- gsub("'", "", tree$tip.label)
+udist <- GUniFrac(t(norm_counts), phangorn::midpoint(tree), alpha = c(0, 0.5, 1))$unifracs[, , "d_0.5"]
+```
+
+```python
+from cbrmb.unifrac import generalized_unifrac, calc_gunifrac
+
+# samples x OTUs, same orientation as the rest of cbrmb (no transpose)
+ufs   = generalized_unifrac(norm_counts, "ZOTUs-Tree-nj.tre", alphas=(0.0, 0.5, 1.0))
+udist = ufs[0.5]                                    # d_0.5, a square DataFrame
+
+udist = calc_gunifrac(norm_counts, "ZOTUs-Tree-nj.tre", alpha=0.5)   # one alpha -> one frame
+udist = mb.calc_gunifrac(adata, "ZOTUs-Tree-nj.tre", alpha=0.5)      # AnnData wrapper
+```
+
+The tree is midpoint-rooted and then pruned to the OTUs in `norm_counts` (both
+match R). `mb.calc_gunifrac(..., backend="r")` still runs the old rpy2 path.
 
 ## Repeated measures (multiple samples per subject)
 

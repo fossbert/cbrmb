@@ -99,13 +99,23 @@ def filter_tax(
     return df_sub.copy()
 
 
-def calc_gunifrac(adata, tree_path, *, layer=None, alpha=0.5, **kwargs):
-    """Generalized UniFrac on ``adata`` (needs the ``r`` extra).
+def calc_gunifrac(adata, tree_path, *, layer=None, alpha=0.5, backend="python", **kwargs):
+    """Generalized UniFrac on ``adata``.
 
-    Thin wrapper: :func:`cbrmb.rbackend.unifrac.calc_gunifrac` on
-    :func:`zotus(adata, layer=layer) <zotus>`.
+    Thin wrapper over :func:`zotus(adata, layer=layer) <zotus>`.
+
+    ``backend="python"`` (default) uses the pure-Python
+    :func:`cbrmb.unifrac.calc_gunifrac` -- no R needed, and it reproduces
+    ``GUniFrac`` + ``phangorn::midpoint`` to machine precision.  ``backend="r"``
+    keeps the old :func:`cbrmb.rbackend.unifrac.calc_gunifrac` path (needs the
+    ``r`` extra).
     """
-    from .rbackend.unifrac import calc_gunifrac as _calc_gunifrac
+    if backend == "r":
+        from .rbackend.unifrac import calc_gunifrac as _calc_gunifrac
+    elif backend == "python":
+        from .unifrac import calc_gunifrac as _calc_gunifrac
+    else:
+        raise ValueError("backend must be 'python' or 'r'")
 
     return _calc_gunifrac(zotus(adata, layer=layer), tree_path, alpha=alpha, **kwargs)
 

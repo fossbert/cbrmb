@@ -8,7 +8,8 @@ Flat re-exports of the most-used helpers so notebooks can do::
 
 Submodules: :mod:`cbrmb.stats`, :mod:`cbrmb.filtering`, :mod:`cbrmb.adapters`,
 :mod:`cbrmb.clinical`, :mod:`cbrmb.pvalues`, :mod:`cbrmb.ordination`,
-:mod:`cbrmb.longitudinal`, and :mod:`cbrmb.rbackend` (needs the ``r`` extra).
+:mod:`cbrmb.longitudinal`, :mod:`cbrmb.unifrac` (pure-Python Generalized
+UniFrac), and :mod:`cbrmb.rbackend` (needs the ``r`` extra).
 """
 
 from __future__ import annotations
@@ -35,6 +36,7 @@ from .rbackend.permanova import (
     subject_variation,
     test_confounder,
 )
+from .unifrac import generalized_unifrac
 from .stats import (
     corr_test,
     fisher_test,
@@ -71,6 +73,7 @@ __all__ = [
     "filter_zotu",
     "filter_tax",
     "calc_gunifrac",
+    "generalized_unifrac",
     "best_clusters",
     # ordination
     "calc_mds",
