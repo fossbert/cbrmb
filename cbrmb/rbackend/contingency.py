@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import numpy as np
+from rpy2 import rinterface
 
 from ._bridge import numpy_to_rpy2
 from . import r_package
@@ -28,6 +29,10 @@ def fisher_exact_rc(table, workspace=2e8):
     r_stats = r_package("stats")
     res = r_stats.fisher_test(numpy_to_rpy2(np.asarray(table)), workspace=workspace)
     pval = res.rx2("p.value")[0]
-    orr = res.rx2("estimate")
-    odds_ratio = orr[0] if len(orr) else np.nan
-    return float(odds_ratio), float(pval)
+
+    # ``fisher.test`` only reports ``estimate`` (the odds ratio) for 2x2 tables;
+    # for larger tables the element is absent and ``rx2`` returns R ``NULL``.
+    names = list(res.names) if res.names is not rinterface.NULL else []
+    orr = res.rx2("estimate") if "estimate" in names else None
+    odds_ratio = float(orr[0]) if orr is not None and len(orr) else np.nan
+    return odds_ratio, float(pval)
