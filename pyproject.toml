@@ -31,7 +31,8 @@ dependencies = [
 anndata = ["anndata>=0.9"]
 umap = ["umap-learn>=0.5"]
 r = ["rpy2>=3.5"]          # plus R packages: ape, phangorn, GUniFrac, NbClust
-all = ["cbrmb[anndata,umap,r]"]
+plotting = ["matplotlib>=3.5"]
+all = ["cbrmb[anndata,umap,r,plotting]"]
 test = ["pytest>=7"]
 
 [project.urls]

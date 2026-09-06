@@ -9,7 +9,8 @@ Flat re-exports of the most-used helpers so notebooks can do::
 Submodules: :mod:`cbrmb.stats`, :mod:`cbrmb.filtering`, :mod:`cbrmb.adapters`,
 :mod:`cbrmb.clinical`, :mod:`cbrmb.pvalues`, :mod:`cbrmb.ordination`,
 :mod:`cbrmb.longitudinal`, :mod:`cbrmb.unifrac` (pure-Python Generalized
-UniFrac), and :mod:`cbrmb.rbackend` (needs the ``r`` extra).
+UniFrac), :mod:`cbrmb.palettes` (phylum colour book), :mod:`cbrmb.plotting`
+(needs the ``plotting`` extra), and :mod:`cbrmb.rbackend` (needs the ``r`` extra).
 """
 
 from __future__ import annotations
@@ -21,12 +22,15 @@ from .adapters import (
     filter_tax,
     filter_zotu,
     taxa,
+    top_taxa,
     zotus,
 )
 from .clinical import bernoulli_var, filter_bernoulli
 from .filtering import filter_features, filter_prevalence, filter_rel_abundance
 from .longitudinal import david_recipe
 from .ordination import calc_mds, calc_umap
+from .palettes import PHYLUM_COLORS, phylum_colors, resolve_phylum
+from .plotting import phylum_handles, plot_read_depth
 from .pvalues import cut_p, fdr
 from .rbackend.kernel import cskat, glmm_mirkat
 from .rbackend.permanova import (
@@ -69,6 +73,7 @@ __all__ = [
     # adapters
     "zotus",
     "taxa",
+    "top_taxa",
     "alpha_diversity",
     "filter_zotu",
     "filter_tax",
@@ -78,6 +83,13 @@ __all__ = [
     # ordination
     "calc_mds",
     "calc_umap",
+    # palettes
+    "PHYLUM_COLORS",
+    "phylum_colors",
+    "resolve_phylum",
+    # plotting
+    "plot_read_depth",
+    "phylum_handles",
     # longitudinal
     "david_recipe",
     # confounder / effect-modifier screening (R backend, lazy)

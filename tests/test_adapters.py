@@ -49,3 +49,24 @@ def test_filter_tax_reports_all_ranks_as_denominator(adata, capsys):
     out = adapters.filter_tax(adata, level="g", prevalence=0.1, frac=2)
     assert list(out.columns) == ["g__Bacteroides", "g__Prevotella"]
     assert "of 4 taxa" in capsys.readouterr().out  # n_all counts every rank, not just genus
+
+
+def test_top_taxa_lumps_remainder_and_strips_prefix(adata):
+    out = adapters.top_taxa(adata, level="p", top=1)
+    assert list(out.columns) in (["Firmicutes", "Other"], ["Bacteroidota", "Other"])
+    assert out.shape == (12, 2)
+    # nothing dropped: kept bin + Other == sum over all p__ columns
+    all_p = adapters.taxa(adata, level="p").sum(axis=1)
+    np.testing.assert_allclose(out.sum(axis=1), all_p)
+
+
+def test_top_taxa_no_other_when_top_covers_all(adata):
+    out = adapters.top_taxa(adata, level="p", top=5)
+    assert "Other" not in out.columns and out.shape == (12, 2)
+    out_raw = adapters.top_taxa(adata, level="p", top=5, strip_prefix=False)
+    assert all(c.startswith("p__") for c in out_raw.columns)
+
+
+def test_top_taxa_drop_remainder(adata):
+    out = adapters.top_taxa(adata, level="p", top=1, other_label=None)
+    assert out.shape == (12, 1)

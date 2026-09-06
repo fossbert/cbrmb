@@ -19,6 +19,7 @@ from .filtering import filter_features
 __all__ = [
     "zotus",
     "taxa",
+    "top_taxa",
     "alpha_diversity",
     "filter_zotu",
     "filter_tax",
@@ -41,6 +42,47 @@ def taxa(adata, level="g", key="tax_binning"):
     """
     df = adata.obsm[key]
     return df.loc[:, df.columns.str.startswith(level)].copy()
+
+
+def top_taxa(
+    adata,
+    *,
+    level="p",
+    top=5,
+    key="tax_binning",
+    other_label="Other",
+    strip_prefix=True,
+):
+    """Top-``top`` bins of one rank by mean abundance, rest lumped into ``other_label``.
+
+    Returns a DataFrame (samples x [top bins + Other]) with columns ordered by
+    descending mean abundance and ``other_label`` last -- ready to hand to
+    ``cbrviz.CompBars``. Values are passed through untouched (no normalization);
+    ``adata`` is assumed to be already subset to the samples of interest.
+
+    Parameters
+    ----------
+    level : str
+        Rank prefix in ``adata.obsm[key]`` (``"p"`` phylum, ``"g"`` genus, ...).
+    top : int
+        Number of bins to keep explicitly.
+    other_label : str or None
+        Name for the summed remainder. ``None`` drops the remainder instead.
+    strip_prefix : bool
+        Remove the leading ``"<level>__"`` from the kept column names.
+    """
+    df = taxa(adata, level=level, key=key)
+    ranked = df.mean().sort_values(ascending=False)
+    keep = ranked.index[:top]
+    out = df[keep].copy()
+
+    if other_label is not None and len(ranked) > len(keep):
+        out[other_label] = df.drop(columns=keep).sum(axis=1)
+
+    if strip_prefix:
+        out.columns = out.columns.str.replace(rf"^{level}__", "", regex=True)
+
+    return out
 
 
 def alpha_diversity(adata, key="alpha_diversity"):

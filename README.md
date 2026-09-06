@@ -13,6 +13,7 @@ pip install -e .                 # core: numpy, pandas, scipy, statsmodels, scik
 pip install -e '.[anndata]'      # AnnData adapters
 pip install -e '.[umap]'         # calc_umap
 pip install -e '.[r]'            # adonis / NbClust / r x c Fisher (needs R + ape, phangorn, GUniFrac, NbClust)
+pip install -e '.[plotting]'     # plot_read_depth (needs matplotlib)
 pip install -e '.[all,test]'
 ```
 
@@ -27,6 +28,7 @@ pip install -e '.[all,test]'
 | `cbrmb.adapters` | `zotus`, `taxa`, `alpha_diversity`, `filter_zotu`, `filter_tax`, `calc_gunifrac`, `best_clusters` |
 | `cbrmb.unifrac` | `generalized_unifrac`, `calc_gunifrac`, `read_newick`, `root_at_midpoint` (pure Python, no R) |
 | `cbrmb.ordination` | `calc_mds`, `calc_umap` |
+| `cbrmb.plotting` | `plot_read_depth` (needs the `plotting` extra) |
 | `cbrmb.longitudinal` | `david_recipe` and helpers (David et al. 2014) |
 | `cbrmb.rbackend.unifrac` | `calc_gunifrac` (legacy R path; `calc_gunifrac(..., backend="r")`) |
 | `cbrmb.rbackend.permanova` | `subject_variation`, `screen_confounder`, `test_confounder`, `screen_effect_modifiers`, `betadisper`, `remove_confounder_nan` |
