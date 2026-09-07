@@ -56,7 +56,7 @@ def kruskal_test(df: pd.DataFrame, ref, quantile=0.75):
     """
     out = []
     for _, v in df.items():
-        vg = v.groupby(ref)
+        vg = v.groupby(ref, observed=True)
         stat, pval = kruskal(*vg.apply(lambda x: x.dropna().values))
         qs = vg.quantile(q=quantile)
         out.append((pval, stat, *qs))
@@ -78,7 +78,7 @@ def mwu_test(df: pd.DataFrame, ref, quantile=0.75):
     u1, pvals = _mwu(arr1, arr2, axis=0, nan_policy="omit")
     u2 = arr1.shape[0] * arr2.shape[0] - u1
 
-    qs = df.groupby(ref).quantile(q=quantile).T
+    qs = df.groupby(ref, observed=True).quantile(q=quantile).T
 
     df_out = pd.DataFrame(
         np.column_stack([pvals, u1, u2, qs.values]),
@@ -107,7 +107,7 @@ def wilcoxon_test(df: pd.DataFrame, ref, quantile=0.75):
     res = wilcoxon(arr1.values, arr2.values, axis=0, nan_policy="omit")
     stat, pvals = np.atleast_1d(res.statistic), np.atleast_1d(res.pvalue)
 
-    qs = df.groupby(ref).quantile(q=quantile).T
+    qs = df.groupby(ref, observed=True).quantile(q=quantile).T
 
     df_out = pd.DataFrame(
         np.column_stack([stat, pvals, qs.values]),
@@ -151,7 +151,7 @@ def fisher_test(df: pd.DataFrame, ref):
     _rc_fisher = None
     out = []
     for _, v in df.items():
-        tab = pd.crosstab(ref, v)
+        tab = pd.crosstab(ref, v, observed=True)
         if not all(dim >= 2 for dim in tab.shape):
             out.append((np.nan, np.nan))
             continue
