@@ -27,7 +27,7 @@ pip install -e '.[all,test]'
 | `cbrmb.clinical` | `bernoulli_var`, `filter_bernoulli` |
 | `cbrmb.adapters` | `zotus`, `taxa`, `alpha_diversity`, `filter_zotu`, `filter_tax`, `calc_gunifrac`, `best_clusters` |
 | `cbrmb.unifrac` | `generalized_unifrac`, `calc_gunifrac`, `read_newick`, `root_at_midpoint` (pure Python, no R) |
-| `cbrmb.ordination` | `calc_mds`, `calc_umap` |
+| `cbrmb.ordination` | `calc_mds`, `calc_umap`, `ordination_report` (embedding + one-covariate PERMANOVA/betadisper; `.plot()` needs the `plotting` extra) |
 | `cbrmb.plotting` | `plot_read_depth` (needs the `plotting` extra) |
 | `cbrmb.longitudinal` | `david_recipe` and helpers (David et al. 2014) |
 | `cbrmb.rbackend.unifrac` | `calc_gunifrac` (legacy R path; `calc_gunifrac(..., backend="r")`) |
@@ -70,6 +70,31 @@ udist = mb.calc_gunifrac(adata, "ZOTUs-Tree-nj.tre", alpha=0.5)      # AnnData w
 
 The tree is midpoint-rooted and then pruned to the OTUs in `norm_counts` (both
 match R). `mb.calc_gunifrac(..., backend="r")` still runs the old rpy2 path.
+
+## Ordination + PERMANOVA for one covariate
+
+`ordination_report` bundles the recurring "embed a distance matrix, colour by a
+group, and test that group" step: a UMAP/MDS embedding plus `test_confounder` and
+`betadisper` on the *same* matrix. Pass an AnnData (uses `adata.obsp[dist_key]`,
+`group`/`subject` are `obs` columns) or a bare distance matrix with `group` /
+`subject` as sequences.
+
+```python
+import cbrmb as mb
+
+for k, ax in zip(["feces", "saliva"], axs):
+    sub = adata_tum[adata_tum.obs["sample_type"] == k]
+    rep = mb.ordination_report(sub, dist_key="gunifrac", group="group",
+                               subject=None, method="umap", min_dist=0.5)
+    rep.permanova            # n, n_groups, scheme, R2, pval, betadisper_F, betadisper_pval
+    rep.plot(ax=ax, colors=color_dict["group"],
+             title=f"{k} (n={sub.n_obs})")   # scatter + 2D densities + legend + R2/p corner
+```
+
+`.plot()` delegates to `cbrviz.plot_embedding` (in the `plotting` extra); grab
+`rep.embedding` and call `cbrviz.plot_embedding` yourself for full control.
+`test=False` skips the R backend and returns just the embedding. For screening
+*many* covariates at once, keep using `screen_confounder` (below).
 
 ## Repeated measures (multiple samples per subject)
 

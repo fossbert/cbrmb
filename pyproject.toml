@@ -31,7 +31,7 @@ dependencies = [
 anndata = ["anndata>=0.9"]
 umap = ["umap-learn>=0.5"]
 r = ["rpy2>=3.5"]          # plus R packages: ape, phangorn, GUniFrac, NbClust
-plotting = ["matplotlib>=3.5"]
+plotting = ["matplotlib>=3.5", "cbrviz>=0.1"]  # cbrviz backs OrdinationReport.plot
 all = ["cbrmb[anndata,umap,r,plotting]"]
 test = ["pytest>=7"]
 
