@@ -196,6 +196,20 @@ def _control(scheme, subject, n_perm):
     return int(n_perm)  # "free"
 
 
+def _r_ready_series(s: pd.Series) -> pd.Series:
+    """Coerce one covariate into something ``pandas2ri`` can convert.
+
+    Real numeric dtypes pass through untouched. Everything else -- object
+    columns with mixed Python types (the classic ``1, 2, "IV"`` clinical
+    field), ``category``, plain strings -- is turned into a homogeneous
+    string Series with NaN preserved, which R then reads as a factor. Without
+    this a single mixed-type column aborts a whole ``screen_confounder`` run.
+    """
+    if pd.api.types.is_numeric_dtype(s) and not pd.api.types.is_bool_dtype(s):
+        return s
+    return s.where(s.isna(), s.astype(str)).astype(object)
+
+
 # --------------------------------------------------------------------------- #
 # adonis runners
 # --------------------------------------------------------------------------- #
@@ -277,6 +291,10 @@ def test_confounder(
 
     Returns a 2-element Series ``{"R2", "Pr(>F)"}`` (so ``r2, pval = ...`` still
     works); ``.attrs["scheme"]`` records what was run.
+
+    Non-numeric covariates (including object columns with mixed Python types)
+    are stringified before the R hand-off, so a messy metadata column no longer
+    aborts the call -- see :func:`_r_ready_series`.
     """
     distmat = square_array(distmat)
     confounder = pd.Series(confounder).reset_index(drop=True)
@@ -288,6 +306,8 @@ def test_confounder(
         else:
             distmat, confounder, subj = remove_confounder_nan(distmat, confounder, subj)
         confounder = confounder.reset_index(drop=True)
+
+    confounder = _r_ready_series(confounder)
 
     if subj is None:
         out = _adonis_free(distmat, confounder, seed)
@@ -407,12 +427,14 @@ def screen_effect_modifiers(
     covariate = pd.Series(covariate).reset_index(drop=True)
     subj = _subject_array(distmat.shape[0], subject)
     cov_level, _, _ = _classify(covariate, subj)
+    covariate = _r_ready_series(covariate)
 
     rank = {"between": 0, "constant": 0, "id_like": 0, "mixed": 1, "within": 2}
     rows = []
     for name, mod in modifiers.items():
         mod = pd.Series(np.asarray(mod)).reset_index(drop=True)
         mod_level, _, _ = _classify(mod, subj)
+        mod = _r_ready_series(mod)
 
         joint_na = covariate.isna().to_numpy() | mod.isna().to_numpy()
         d = distmat[np.ix_(~joint_na, ~joint_na)]

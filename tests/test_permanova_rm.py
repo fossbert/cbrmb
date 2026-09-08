@@ -145,3 +145,35 @@ def test_betadisper_runs(rm_data):
     assert set(out.index) == {"F", "pval"}
     assert out.attrs["scheme"] == "between"
     assert "group_dist_to_centroid" in out.attrs
+
+
+# --- mixed-type covariate coercion (_r_ready_series) --------------------------
+def test_r_ready_series_leaves_numeric_and_stringifies_the_rest():
+    from cbrmb.rbackend.permanova import _r_ready_series
+
+    num = pd.Series([1.0, 2.0, np.nan, 4.0])
+    pd.testing.assert_series_equal(_r_ready_series(num), num)
+
+    mixed = pd.Series([1, "IV", 3, np.nan, "unknown"], dtype=object)
+    out = _r_ready_series(mixed)
+    assert out[out.notna()].map(type).eq(str).all()     # homogeneous str
+    assert out.isna().tolist() == [False, False, False, True, False]
+    assert out.tolist()[:3] == ["1", "IV", "3"]         # no "nan" string leaks
+
+
+@r_backend
+def test_screen_confounder_survives_mixed_type_column(rm_data):
+    from cbrmb.rbackend.permanova import screen_confounder, test_confounder
+
+    D, subject, meta = rm_data
+    meta = meta.copy()
+    # a clinical-style column: numeric codes with a couple of string escapes
+    stage = np.where(np.arange(len(meta)) % 4 == 0, "n.a.", np.arange(len(meta)) % 3)
+    meta["stage"] = pd.Series(stage, index=meta.index, dtype=object)
+
+    res = test_confounder(D, meta["stage"])
+    assert np.isfinite(res["R2"]) and np.isfinite(res["Pr(>F)"])
+
+    out = screen_confounder(D, meta, verbose=False)
+    assert "stage" in set(out["var"])
+    assert out["pval"].notna().all()
