@@ -86,6 +86,19 @@ def test_ordination_report_bad_method(three_group_dist):
         ordination_report(D, group=grp, method="tsne", test=False)
 
 
+def test_ordination_report_usage_example_runs(capsys):
+    import textwrap
+
+    from cbrmb.ordination import OrdinationReport
+
+    OrdinationReport.usage()
+    assert "ordination_report" in capsys.readouterr().out
+
+    code = textwrap.dedent(OrdinationReport._EXAMPLE)
+    assert code.strip()
+    exec(compile(code, "<OrdinationReport._EXAMPLE>", "exec"), {})
+
+
 def test_ordination_report_bare_matrix_needs_group_sequence(three_group_dist):
     D, _, _ = three_group_dist
     with pytest.raises(TypeError, match="group` must be a sequence"):

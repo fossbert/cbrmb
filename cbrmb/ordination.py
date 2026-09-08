@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import warnings
 from dataclasses import dataclass
+from textwrap import dedent
 
 import numpy as np
 import pandas as pd
@@ -145,6 +146,44 @@ class OrdinationReport:
     group: str
     method: str
 
+    # copy-pasteable example, printed by usage(); left unannotated on purpose so
+    # the dataclass does not treat it as a field
+    _EXAMPLE = """
+    import numpy as np
+    import pandas as pd
+    import matplotlib.pyplot as plt
+    from scipy.spatial.distance import pdist, squareform
+
+    import cbrmb as mb
+
+    # three groups pulled apart along one axis -> a real ordination signal
+    rng = np.random.default_rng(0)
+    groups = np.repeat(["healthy", "mild", "severe"], 20)
+    X = rng.normal(size=(60, 8))
+    X[:, 0] += np.repeat([0.0, 2.0, 4.0], 20)
+    dist = squareform(pdist(X))                 # any precomputed sample distance
+
+    # embedding + PERMANOVA + betadisper on the *same* matrix, one covariate
+    rep = mb.ordination_report(dist, group=groups, method="mds", metric=True)
+    print(rep)                                  # OrdinationReport(mds, n=60, group: R2=..., p=...)
+    print(rep.permanova)                        # n, n_groups, scheme, R2, pval, betadisper_F/_pval
+
+    fig, ax = plt.subplots(figsize=(4, 4))
+    rep.plot(ax=ax, colors=["#4C72B0", "#DD8452", "#C44E52"], title="cohort")
+
+    # real use: from an AnnData, looping the facet yourself
+    #   sub = adata[adata.obs["sample_type"] == "feces"]
+    #   rep = mb.ordination_report(sub, dist_key="gunifrac", group="group",
+    #                              subject="patient_id",     # -> restricted permutation
+    #                              method="umap", min_dist=0.5)
+    #   rep.embedding    # Dim1, Dim2, <covariate>   (index = obs_names)
+    """
+
+    @classmethod
+    def usage(cls) -> None:
+        """Print a minimal, runnable example for :func:`ordination_report`."""
+        print(f"# Typical use of ordination_report\n\n{dedent(cls._EXAMPLE).strip()}")
+
     def __repr__(self) -> str:
         n = len(self.embedding)
         if self.permanova is None:
@@ -242,6 +281,10 @@ def ordination_report(data, *, dist_key="gunifrac", group="group", subject=None,
     Returns
     -------
     OrdinationReport
+
+    Examples
+    --------
+    ``OrdinationReport.usage()`` prints a runnable snippet.
     """
     try:
         embed = _EMBEDDERS[method]
