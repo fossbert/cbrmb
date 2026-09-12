@@ -98,6 +98,11 @@ for k, ax in zip(["feces", "saliva"], axs):
 
 ## Repeated measures (multiple samples per subject)
 
+See [`docs/permanova_repeated_measures.md`](docs/permanova_repeated_measures.md) for
+the reasoning behind the schemes below (why free permutation is anti-conservative,
+why between- and within-subject covariates need different restricted-permutation
+designs). This section is the quick-reference version.
+
 Default PERMANOVA permutes all samples freely and is **anti-conservative** when a
 person contributes several samples. Pass `subject=` and `test_confounder` /
 `screen_confounder` pick a restricted-permutation scheme per covariate (via the R
