@@ -151,7 +151,10 @@ def fisher_test(df: pd.DataFrame, ref):
     _rc_fisher = None
     out = []
     for _, v in df.items():
-        tab = pd.crosstab(ref, v, observed=True)
+        tab = pd.crosstab(ref, v)
+        # pd.crosstab has no ``observed`` argument; emulate it by dropping
+        # empty rows/columns left behind by unused categorical levels.
+        tab = tab.loc[(tab != 0).any(axis=1), (tab != 0).any(axis=0)]
         if not all(dim >= 2 for dim in tab.shape):
             out.append((np.nan, np.nan))
             continue
