@@ -302,6 +302,13 @@ def ordination_report(data, *, dist_key="gunifrac", group="group", subject=None,
     if test:
         try:
             from .rbackend.permanova import betadisper, test_confounder
+
+            perm = test_confounder(
+                D, groups, seed=seed, subject=subj, scheme="auto", n_perm=n_perm
+            )
+            bd = betadisper(
+                D, groups, subject=subj, scheme="auto", n_perm=n_perm, seed=seed
+            )
         except ImportError as exc:  # pragma: no cover - environment dependent
             warnings.warn(
                 f"ordination_report(test=True) needs the 'r' extra; "
@@ -309,12 +316,6 @@ def ordination_report(data, *, dist_key="gunifrac", group="group", subject=None,
                 stacklevel=2,
             )
         else:
-            perm = test_confounder(
-                D, groups, seed=seed, subject=subj, scheme="auto", n_perm=n_perm
-            )
-            bd = betadisper(
-                D, groups, subject=subj, scheme="auto", n_perm=n_perm, seed=seed
-            )
             permanova = pd.Series(
                 {
                     "n": int(D.shape[0]),

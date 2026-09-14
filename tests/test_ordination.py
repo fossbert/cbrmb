@@ -89,6 +89,8 @@ def test_ordination_report_bad_method(three_group_dist):
 def test_ordination_report_usage_example_runs(capsys):
     import textwrap
 
+    pytest.importorskip("matplotlib")
+
     from cbrmb.ordination import OrdinationReport
 
     OrdinationReport.usage()
