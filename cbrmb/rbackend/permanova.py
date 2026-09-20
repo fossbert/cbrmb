@@ -7,14 +7,19 @@ correct restricted-permutation scheme (via the R ``permute`` package):
 
 * covariate **constant within subject** (``level == "between"``) -> permute whole
   subjects as units (``how(plots = Plots(strata = subject, type = "free"),
-  within = Within("none"))``); ``subject`` is *not* added to the model.
+  within = Within("none"))``); ``subject`` is *not* added to the model. This
+  requires a *balanced* subject structure (equal samples per subject) --
+  ``permute::Plots`` can't free-permute unevenly sized blocks. When it isn't
+  (the rule, not the exception, for real cohort data), :func:`test_confounder`
+  automatically falls back to ``reduce="medoid"`` and warns.
 * covariate **varies within subject** (``"within"`` / ``"mixed"``) -> add
   ``subject`` as the first model term and permute only within subject
   (``how(blocks = subject)``); the covariate is tested on the within-subject
-  residual.
+  residual. No balance requirement.
 
 Alternatively ``reduce="medoid"`` / ``"first"`` collapses to one sample per
-subject and runs an ordinary PERMANOVA.
+subject and runs an ordinary PERMANOVA -- pass it explicitly to apply it to
+*every* covariate regardless of level.
 """
 
 from __future__ import annotations
@@ -127,8 +132,15 @@ def remove_confounder_nan(distmat, confounder: pd.Series, subject=None):
     return d, c, np.asarray(subject)[idx]
 
 
-def _reduce_to_subject(distmat, values: pd.Series, subject: np.ndarray, how: str):
-    """Collapse to one sample per subject; return ``(D, values, subjects)``."""
+def _reduce_picks(distmat, subject: np.ndarray, how: str) -> np.ndarray:
+    """Row positions selecting one representative sample per subject.
+
+    ``"medoid"``: the within-subject sample closest (in ``distmat``) to its
+    other same-subject samples. ``"first"``: the first occurrence. Shared by
+    :func:`_reduce_to_subject` and the ``scheme="between"`` fallbacks (see
+    module docstring), where several aligned value series (e.g. a covariate
+    and a modifier) need to be subset by the exact same positions.
+    """
     order = pd.unique(subject)
     pos = {s: np.where(subject == s)[0] for s in order}
 
@@ -146,9 +158,14 @@ def _reduce_to_subject(distmat, values: pd.Series, subject: np.ndarray, how: str
     else:
         raise ValueError("reduce must be 'first' or 'medoid'")
 
-    picks = np.asarray(picks)
+    return np.asarray(picks)
+
+
+def _reduce_to_subject(distmat, values: pd.Series, subject: np.ndarray, how: str):
+    """Collapse to one sample per subject; return ``(D, values, subjects)``."""
+    picks = _reduce_picks(distmat, subject, how)
     vals = values.iloc[picks].reset_index(drop=True)
-    return distmat[np.ix_(picks, picks)], vals, order
+    return distmat[np.ix_(picks, picks)], vals, pd.unique(subject)
 
 
 # --------------------------------------------------------------------------- #
@@ -161,6 +178,17 @@ def _r_factor(x):
 
 def _how_between(subject, n_perm):
     permute = r_package("permute")
+    sizes = pd.Series(subject).value_counts()
+    if sizes.nunique() > 1:
+        raise ValueError(
+            "scheme='between' permutiert ganze Subjects (permute::Plots strata) und "
+            "setzt dafür eine balancierte Subject-Struktur voraus (gleich viele Proben "
+            f"je Subject); gefunden: {int(sizes.min())}-{int(sizes.max())} Proben/Subject "
+            f"über {len(sizes)} Subjects. Das ist bei echten Longitudinal-/Kohortendaten "
+            "die Regel, nicht die Ausnahme -- vor dem Aufruf mit reduce='first' oder "
+            "reduce='medoid' auf 1 Probe/Subject reduzieren (test_confounder/"
+            "screen_confounder, Parameter reduce)."
+        )
     subj_f = _r_factor(subject)
     plots = permute.Plots(strata=subj_f, type="free")
     within = permute.Within(type="none")
@@ -290,11 +318,18 @@ def test_confounder(
     ``"first"``) collapses to one sample per subject and ignores ``scheme``.
 
     Returns a 2-element Series ``{"R2", "Pr(>F)"}`` (so ``r2, pval = ...`` still
-    works); ``.attrs["scheme"]`` records what was run.
+    works); ``.attrs["scheme"]`` records what was run -- including
+    ``"between->reduce:medoid"`` when the automatic fallback below kicked in.
 
     Non-numeric covariates (including object columns with mixed Python types)
     are stringified before the R hand-off, so a messy metadata column no longer
     aborts the call -- see :func:`_r_ready_series`.
+
+    A resolved/explicit ``scheme="between"`` needs a balanced subject
+    structure (equal samples per subject); if it isn't, this automatically
+    falls back to ``reduce="medoid"`` and raises a ``UserWarning`` naming the
+    covariate and the imbalance, rather than letting the underlying R call
+    fail with an opaque error.
     """
     distmat = square_array(distmat)
     confounder = pd.Series(confounder).reset_index(drop=True)
@@ -332,7 +367,18 @@ def test_confounder(
     if scheme == "free":
         out = _adonis_free(distmat, confounder, seed)
     elif scheme == "between":
-        out = _adonis_between(distmat, confounder, subj, seed, n_perm)
+        try:
+            out = _adonis_between(distmat, confounder, subj, seed, n_perm)
+        except ValueError as e:
+            cov_label = f"[{confounder.name}] " if confounder.name else ""
+            warnings.warn(
+                f"{cov_label}{e} Falle automatisch auf reduce='medoid' zurück (1 "
+                "Probe/Subject, anschließend gewöhnliche freie Permutation)."
+            )
+            d_r, c_r, _ = _reduce_to_subject(distmat, confounder, subj, "medoid")
+            out = _adonis_free(d_r, c_r, seed)
+            out.attrs["scheme"] = "between->reduce:medoid"
+            return out
     elif scheme in ("within", "mixed"):
         out = _adonis_within(distmat, confounder, subj, seed, n_perm)
     else:
@@ -368,7 +414,11 @@ def screen_confounder(
                 if verbose:
                     print(f"Dropping {name}, levels not suitable")
                 continue
-            rows.append((name, *test_confounder(distmat, values, seed)))
+            try:
+                rows.append((name, *test_confounder(distmat, values, seed)))
+            except Exception as e:
+                if verbose:
+                    print(f"Skipping {name}: {e}")
         return pd.DataFrame(rows, columns=("var", "r2", "pval"))
 
     from ..pvalues import fdr
@@ -378,15 +428,20 @@ def screen_confounder(
     rows = []
     for name, values in confounders.items():
         level, _, n_non_na = _classify(values, subj)
-        if reduce is not None and level in _LEVELS_TESTABLE:
-            res = test_confounder(distmat, values, seed, subject=subj,
-                                  n_perm=n_perm, reduce=reduce)
-        elif level in _LEVELS_TESTABLE:
-            res = test_confounder(distmat, values, seed, subject=subj,
-                                  scheme=scheme, n_perm=n_perm)
-        else:
+        if level not in _LEVELS_TESTABLE:
             if verbose:
                 print(f"Dropping {name}: level '{level}'")
+            continue
+        try:
+            if reduce is not None:
+                res = test_confounder(distmat, values, seed, subject=subj,
+                                      n_perm=n_perm, reduce=reduce)
+            else:
+                res = test_confounder(distmat, values, seed, subject=subj,
+                                      scheme=scheme, n_perm=n_perm)
+        except Exception as e:
+            if verbose:
+                print(f"Skipping {name}: {e}")
             continue
         rows.append((name, level, n_non_na, res.attrs.get("scheme", ""),
                      float(res["R2"]), float(res["Pr(>F)"])))
@@ -416,6 +471,12 @@ def screen_effect_modifiers(
     effects). Permutation scheme follows the "more within-subject" of covariate
     and modifier. Returns ``["modifier", "cov_level", "mod_level", "scheme",
     "r2_interaction", "pval", "fdr"]`` sorted by ``pval``.
+
+    When ``scheme`` resolves to ``"between"`` (both covariate and modifier are
+    subject-constant) this needs a balanced subject structure for that
+    modifier's non-missing rows; if it isn't, falls back per-modifier to
+    ``reduce="medoid"`` (``scheme`` then reads ``"between->reduce:medoid"``)
+    and raises a ``UserWarning`` naming the modifier.
     """
     ro, *_ = require_rpy2()
     from rpy2.robjects import Formula
@@ -458,7 +519,19 @@ def screen_effect_modifiers(
         else:
             fmla = Formula("y ~ x * m")
             scheme = "between"
-            ctrl = _how_between(subj_i, n_perm)
+            try:
+                ctrl = _how_between(subj_i, n_perm)
+            except ValueError as e:
+                warnings.warn(
+                    f"[{name}] {e} Falle automatisch auf reduce='medoid' zurück (1 "
+                    "Probe/Subject, anschließend gewöhnliche freie Permutation)."
+                )
+                picks = _reduce_picks(d, subj_i, "medoid")
+                d = d[np.ix_(picks, picks)]
+                cov_i = cov_i.iloc[picks].reset_index(drop=True)
+                mod_i = mod_i.iloc[picks].reset_index(drop=True)
+                scheme = "between->reduce:medoid"
+                ctrl = int(n_perm)
 
         env = fmla.environment
         env["y"] = r_stats.as_dist(numpy_to_rpy2(d))
@@ -492,25 +565,42 @@ def betadisper(distmat, group, *, subject=None, scheme: str = "auto",
     A significant PERMANOVA can reflect group differences in *spread* rather than
     location; this checks for that. With ``subject`` the permutation is
     restricted the same way as in :func:`test_confounder` (``scheme="auto"``
-    classifies ``group`` as between- or within-subject). Returns a Series
-    ``{"F", "pval"}`` with ``.attrs["group_dist_to_centroid"]`` and
-    ``.attrs["scheme"]``.
+    classifies ``group`` as between- or within-subject) -- including the same
+    automatic ``reduce="medoid"`` fallback (with a ``UserWarning``) when a
+    resolved ``"between"`` scheme meets an unbalanced subject structure; the
+    dispersion itself is then computed on the reduced (1 sample/subject) data,
+    so ``.attrs["group_dist_to_centroid"]`` and the F-test stay consistent
+    with what was actually permuted. Returns a Series ``{"F", "pval"}`` with
+    ``.attrs["group_dist_to_centroid"]`` and ``.attrs["scheme"]`` (the latter
+    reads ``"between->reduce:medoid"`` when the fallback fired).
     """
     ro, *_ = require_rpy2()
     r_stats = r_package("stats")
     vegan = r_package("vegan")
 
     distmat = square_array(distmat)
-    d = r_stats.as_dist(numpy_to_rpy2(distmat))
-    g = _r_factor(group)
-    bd = vegan.betadisper(d, g)
+    group = pd.Series(np.asarray(group)).reset_index(drop=True)
 
     if subject is None:
         ctrl, used = int(n_perm), "free"
     else:
         subj = _subject_array(distmat.shape[0], subject)
         used = _resolve_scheme(scheme, group, subj) or "between"
-        ctrl = _control(used, subj, n_perm)
+        try:
+            ctrl = _control(used, subj, n_perm)
+        except ValueError as e:
+            if used != "between":
+                raise
+            warnings.warn(
+                f"{e} Falle automatisch auf reduce='medoid' zurück (1 Probe/Subject, "
+                "anschließend gewöhnliche freie Permutation)."
+            )
+            distmat, group, _ = _reduce_to_subject(distmat, group, subj, "medoid")
+            ctrl, used = int(n_perm), "between->reduce:medoid"
+
+    d = r_stats.as_dist(numpy_to_rpy2(distmat))
+    g = _r_factor(group)
+    bd = vegan.betadisper(d, g)
 
     ro.r("set.seed")(seed)
     pt = vegan.permutest(bd, permutations=ctrl)
