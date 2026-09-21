@@ -35,10 +35,13 @@ from .pvalues import cut_p, fdr
 from .rbackend.kernel import cskat, glmm_mirkat
 from .rbackend.permanova import (
     betadisper,
+    bootstrap_mediation,
+    mediation_decompose,
     screen_confounder,
     screen_effect_modifiers,
     subject_variation,
     test_confounder,
+    test_confounder_adjusted,
 )
 from .unifrac import generalized_unifrac
 from .stats import (
@@ -98,6 +101,9 @@ __all__ = [
     "subject_variation",
     "screen_confounder",
     "test_confounder",
+    "test_confounder_adjusted",
+    "mediation_decompose",
+    "bootstrap_mediation",
     "screen_effect_modifiers",
     "betadisper",
     "cskat",

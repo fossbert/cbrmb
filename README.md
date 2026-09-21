@@ -31,7 +31,7 @@ pip install -e '.[all,test]'
 | `cbrmb.plotting` | `plot_read_depth` (needs the `plotting` extra) |
 | `cbrmb.longitudinal` | `david_recipe` and helpers (David et al. 2014) |
 | `cbrmb.rbackend.unifrac` | `calc_gunifrac` (legacy R path; `calc_gunifrac(..., backend="r")`) |
-| `cbrmb.rbackend.permanova` | `subject_variation`, `screen_confounder`, `test_confounder`, `screen_effect_modifiers`, `betadisper`, `remove_confounder_nan` |
+| `cbrmb.rbackend.permanova` | `subject_variation`, `screen_confounder`, `test_confounder`, `test_confounder_adjusted`, `mediation_decompose`, `bootstrap_mediation`, `screen_effect_modifiers`, `betadisper`, `remove_confounder_nan` |
 | `cbrmb.rbackend.clustering` | `best_clusters` |
 | `cbrmb.rbackend.contingency` | `fisher_exact_rc` (r x c fallback for `fisher_test`) |
 | `cbrmb.rbackend.kernel` | `glmm_mirkat`, `cskat` (needs CRAN package `MiRKAT`) |
@@ -140,6 +140,35 @@ Rscript -e 'install.packages("MiRKAT")'   # pulls CompQuadForm, GLMMadaptive, Pe
 ```
 
 Without `subject=`, all of these behave exactly as before.
+
+## Mediator screening (descriptive PERMANOVA-R2 decomposition)
+
+Does a candidate mediator (e.g. antibiotic exposure) eat into an exposure's
+(e.g. disease group) community-level association? `test_confounder` gives the
+unadjusted "total" R2; `test_confounder_adjusted` fits the same PERMANOVA with
+the mediator entered first (sequential/Type I SS) and returns the exposure's
+"direct" R2 afterwards. `mediation_decompose` runs both and reports the gap;
+`bootstrap_mediation` wraps it in a cluster bootstrap for a CI on that gap.
+
+```python
+import cbrmb as mb
+
+# total vs. direct effect of `group`, adjusting for `antibiotics`
+total  = mb.test_confounder(dist, meta["group"], subject=subj)
+direct = mb.test_confounder_adjusted(dist, meta["group"], meta["antibiotics"], subject=subj)
+
+dec = mb.mediation_decompose(dist, meta["group"], meta["antibiotics"], subject=subj)
+dec[["R2_total", "R2_direct", "R2_indirect", "R2_indirect_frac"]]
+
+boot = mb.bootstrap_mediation(dist, meta["group"], meta["antibiotics"], subject=subj, n_boot=1000)
+boot["summary"]   # mean/sd/CI for R2_total, R2_direct, R2_indirect
+```
+
+This is a descriptive R2 decomposition, not a formal causal-mediation
+estimate (no check of the no-exposure-induced-mediator-outcome-confounder
+assumption, no product-of-coefficients test) -- see the docstrings and
+[`docs/permanova_repeated_measures.md`](docs/permanova_repeated_measures.md)
+for the caveats and when to reach for per-taxon causal mediation instead.
 
 ## Migrating from `utils.py` / `tstools.py`
 

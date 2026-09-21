@@ -133,6 +133,64 @@ subject-restricted permutation logic to `vegan::betadisper`/`permutest`, so a
 significant PERMANOVA together with a non-significant `betadisper` supports a
 genuine location effect.
 
+## 8. Mediator screening: does a candidate mediator eat into an exposure's R2?
+
+A recurring question once `screen_confounder` flags several candidates: one
+of them (say, antibiotic exposure) looks like it might sit *causally between*
+the exposure of interest (say, disease group) and the community, rather than
+being an independent confounder -- exposure causes the mediator, which in
+turn shifts the community. `test_confounder`/`screen_confounder` alone can't
+tell you this: they test one covariate at a time, unconditionally.
+
+`test_confounder_adjusted(dist, target, adjust_for, ...)` fits the same
+PERMANOVA but with `adjust_for` entered first in a sequential (Type I) model
+-- `y ~ [subj +] adjust_for + target` -- and returns `target`'s R2 *after*
+`adjust_for` has already claimed its share. With `subject=`, the scheme
+(whole-subject vs. within-subject-blocked permutation) is decided from
+`target`'s own level exactly as in `test_confounder` -- `adjust_for` never
+drives that choice, it only ever enters as a control term. Comparing that to
+the plain, unadjusted `test_confounder(dist, target, ...)` gives a rough
+decomposition:
+
+```
+R2_total    = test_confounder(dist, exposure, ...)                    # exposure alone
+R2_direct   = test_confounder_adjusted(dist, exposure, mediator, ...) # exposure after mediator
+R2_indirect = R2_total - R2_direct                                    # ~ shared with mediator
+```
+
+`mediation_decompose` runs both calls on the same joint-complete-case subset
+(so the two R2 values are comparable) and returns all of `R2_total`,
+`R2_direct`, `R2_indirect` and `R2_indirect_frac` in one call.
+`bootstrap_mediation` wraps this in a cluster bootstrap (resampling subjects
+with replacement when `subject=` is given, samples otherwise) to put a
+percentile CI on `R2_indirect`. Each bootstrap replicate runs with `n_perm=2`
+-- the minimum `GUniFrac::adonis3` needs to build a well-formed ANOVA table
+for the two-covariate `m + x` formula (`n_perm=1` makes it error) -- since the
+R2/pseudo-F point estimate does not otherwise depend on the permutation count;
+only its own p-value would, and that p-value is discarded, so this still keeps
+1000+ replicates fast. Only `bootstrap_mediation(...)["observed"]` (fit with
+the real `n_perm`) has a meaningful p-value. A subject drawn more than once in a
+replicate is relabelled per draw (`f"{subject}__{k}"`) so the `within`/
+`between` restricted-permutation machinery treats each drawn copy as its own
+unit, as a cluster bootstrap requires.
+
+**What this is not.** It is a descriptive variance-share comparison, useful
+as a fast, assumption-light screen before investing further -- not a formal
+causal mediation estimate. It doesn't check whether there's a confounder of
+the mediator-outcome relationship that is itself affected by the exposure
+(a common real case: exposure causes both the mediator and a second variable
+that also shifts the community, e.g. disease severity driving both antibiotic
+use and cholestasis-related community shifts independently -- see the ColoBAC
+PDAC project's bilirubin/antibiotics discussion for a concrete instance).
+R2 shares from sequential SS are also not strictly additive/causal
+quantities in the way a coefficient decomposition (a x b) would be, and a
+`between`-level `adjust_for` inside a `within`-blocked model is aliased by
+the `subj` term (see `test_confounder_adjusted`'s docstring). Treat a
+nonzero `R2_indirect` here as "worth following up", not as a mediation
+finding to report -- for that, move to per-taxon or per-metric causal
+mediation (R: `mediation`, `CMAverse`, `regmedint`) with the usual
+sensitivity analysis for unmeasured mediator-outcome confounding.
+
 ## References
 
 * Anderson, M.J. & ter Braak, C.J.F. (2003). *Permutation tests for

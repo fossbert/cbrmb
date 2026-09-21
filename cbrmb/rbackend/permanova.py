@@ -36,6 +36,9 @@ __all__ = [
     "subject_variation",
     "screen_confounder",
     "test_confounder",
+    "test_confounder_adjusted",
+    "mediation_decompose",
+    "bootstrap_mediation",
     "screen_effect_modifiers",
     "betadisper",
     "remove_confounder_nan",
@@ -168,6 +171,17 @@ def _reduce_to_subject(distmat, values: pd.Series, subject: np.ndarray, how: str
     return distmat[np.ix_(picks, picks)], vals, pd.unique(subject)
 
 
+def _reduce_to_subject_multi(distmat, values_list, subject: np.ndarray, how: str):
+    """Like :func:`_reduce_to_subject` but for several aligned series at once.
+
+    Used where two covariates (a target and an adjustment variable) must be
+    collapsed to the same one-sample-per-subject positions.
+    """
+    picks = _reduce_picks(distmat, subject, how)
+    reduced = [v.iloc[picks].reset_index(drop=True) for v in values_list]
+    return distmat[np.ix_(picks, picks)], reduced, pd.unique(subject)
+
+
 # --------------------------------------------------------------------------- #
 # permute::how controls
 # --------------------------------------------------------------------------- #
@@ -296,6 +310,61 @@ def _adonis_within(distmat, values, subject, seed, n_perm):
 
 
 # --------------------------------------------------------------------------- #
+# adonis runners -- adjusted (two-covariate, sequential) variants for
+# test_confounder_adjusted / mediation_decompose
+# --------------------------------------------------------------------------- #
+def _adonis_free_adjusted(distmat, adjust, target, seed, n_perm):
+    """``y ~ adjust + target``, free permutation, sequential (Type I) SS."""
+    ro, *_ = require_rpy2()
+    from rpy2.robjects import Formula
+
+    r_stats = r_package("stats")
+    fmla = Formula("y ~ m + x")
+    env = fmla.environment
+    env["y"] = r_stats.as_dist(numpy_to_rpy2(distmat))
+    env["m"] = pandas_to_rpy2(adjust)
+    env["x"] = pandas_to_rpy2(target)
+    ro.r("set.seed")(seed)
+    tab = _aovtab(formula=fmla, permutations=int(n_perm))  # sequential: m, x
+    return _r2_pval(tab.loc["x"])
+
+
+def _adonis_between_adjusted(distmat, adjust, target, subject, seed, n_perm):
+    """``y ~ adjust + target``, whole-subject permutation, sequential SS."""
+    ro, *_ = require_rpy2()
+    from rpy2.robjects import Formula
+
+    r_stats = r_package("stats")
+    fmla = Formula("y ~ m + x")
+    env = fmla.environment
+    env["y"] = r_stats.as_dist(numpy_to_rpy2(distmat))
+    env["m"] = pandas_to_rpy2(adjust)
+    env["x"] = pandas_to_rpy2(target)
+    ctrl = _how_between(subject, n_perm)
+    ro.r("set.seed")(seed)
+    tab = _aovtab(formula=fmla, permutations=ctrl)
+    return _r2_pval(tab.loc["x"])
+
+
+def _adonis_within_adjusted(distmat, adjust, target, subject, seed, n_perm):
+    """``y ~ subj + adjust + target``, within-subject-blocked permutation."""
+    ro, *_ = require_rpy2()
+    from rpy2.robjects import Formula
+
+    r_stats = r_package("stats")
+    fmla = Formula("y ~ subj + m + x")
+    env = fmla.environment
+    env["y"] = r_stats.as_dist(numpy_to_rpy2(distmat))
+    env["subj"] = _r_factor(subject)
+    env["m"] = pandas_to_rpy2(adjust)
+    env["x"] = pandas_to_rpy2(target)
+    ctrl = _how_blocks(subject, n_perm)
+    ro.r("set.seed")(seed)
+    tab = _aovtab(formula=fmla, permutations=ctrl)  # sequential: subj, m, x
+    return _r2_pval(tab.loc["x"])
+
+
+# --------------------------------------------------------------------------- #
 # public API
 # --------------------------------------------------------------------------- #
 def test_confounder(
@@ -381,6 +450,142 @@ def test_confounder(
             return out
     elif scheme in ("within", "mixed"):
         out = _adonis_within(distmat, confounder, subj, seed, n_perm)
+    else:
+        raise ValueError(f"unknown scheme {scheme!r}")
+    out.attrs["scheme"] = scheme
+    return out
+
+
+def test_confounder_adjusted(
+    distmat,
+    target: pd.Series,
+    adjust_for: pd.Series,
+    seed: int = 42,
+    *,
+    subject=None,
+    scheme: str = "auto",
+    n_perm: int = 999,
+    reduce: str | None = None,
+):
+    """Sequential (Type I) PERMANOVA of ``target`` *after* ``adjust_for``.
+
+    Fits ``y ~ [subj +] adjust_for + target`` (``adjust_for`` always enters
+    first) and returns ``target``'s row of the sequential ANOVA table -- the
+    variance ``target`` explains *beyond* ``adjust_for``. Pair this with the
+    plain, unadjusted :func:`test_confounder` (``target``'s "total effect")
+    to approximate how much of that total effect overlaps with
+    ``adjust_for``::
+
+        total  = test_confounder(dist, exposure, subject=subj)
+        direct = test_confounder_adjusted(dist, exposure, mediator, subject=subj)
+        r2_indirect = total["R2"] - direct["R2"]
+
+    :func:`mediation_decompose` packages exactly this pair; use it directly
+    unless you need the two calls separately.
+
+    This is a descriptive PERMANOVA-R2 decomposition, not a formal causal
+    mediation estimate -- it does not check the no-exposure-induced-
+    mediator-outcome-confounder assumption a product-of-coefficients
+    estimate would need, and R2 shares are not strictly additive/causal
+    quantities the way a coefficient decomposition would be. Treat it as a
+    quick, assumption-light screen for whether a candidate mediator changes
+    an exposure's community-level association at all, before investing in
+    per-taxon causal mediation (e.g. ``mediation``/``CMAverse`` in R).
+
+    Same ``subject`` handling as :func:`test_confounder`. Without
+    ``subject``: ordinary free-permutation adonis. With ``subject`` and
+    ``scheme="auto"``: the scheme is decided from ``target``'s *own* level
+    (:func:`subject_variation`) exactly as in :func:`test_confounder`,
+    *not* ``adjust_for``'s -- a between-subject ``target`` always gets the
+    whole-subject-permutation ``y ~ adjust_for + target`` model, a
+    within/mixed ``target`` always gets the within-subject-blocked
+    ``y ~ subj + adjust_for + target`` model, regardless of what
+    ``adjust_for`` does. (``adjust_for`` only ever enters as a control term;
+    letting it drive the scheme choice would force a between-subject
+    ``target`` into a ``subj``-blocked model, where it has zero within-subject
+    residual left and gets aliased out of the ANOVA table entirely --
+    ``target``'s own row would simply be missing.) The whole-subject scheme
+    has the same automatic ``reduce="medoid"`` fallback on an unbalanced
+    subject structure as :func:`test_confounder`. ``reduce`` forces
+    collapsing to one sample/subject up front, as in :func:`test_confounder`.
+
+    A between-subject ``adjust_for`` inside a within-subject-blocked model
+    (``target`` within/mixed, ``adjust_for`` between) is aliased by the
+    ``subj`` term (it has no within-subject variance left to explain once
+    ``subj`` is in the model) and drops out of the ANOVA table entirely --
+    ``target``'s own row is unaffected, but that particular ``adjust_for``
+    contributes no actual adjustment in this case; a between-subject
+    covariate has no within-subject information to adjust away regardless.
+
+    If either ``target`` or ``adjust_for`` is untestable (``"constant"`` or
+    ``"id_like"``, e.g. after a degenerate resample in
+    :func:`bootstrap_mediation`), returns ``{"R2": nan, "Pr(>F)": nan}`` with
+    ``.attrs["scheme"]`` naming which one, instead of failing inside the R
+    call -- mirroring :func:`test_confounder`'s handling of the same case.
+    """
+    distmat = square_array(distmat)
+    target = pd.Series(target).reset_index(drop=True)
+    adjust_for = pd.Series(adjust_for).reset_index(drop=True)
+    subj = _subject_array(distmat.shape[0], subject)
+
+    joint_na = target.isna().to_numpy() | adjust_for.isna().to_numpy()
+    if joint_na.any():
+        idx = np.arange(distmat.shape[0])[~joint_na]
+        distmat = distmat[np.ix_(idx, idx)]
+        target = target.iloc[idx].reset_index(drop=True)
+        adjust_for = adjust_for.iloc[idx].reset_index(drop=True)
+        if subj is not None:
+            subj = subj[idx]
+
+    target = _r_ready_series(target)
+    adjust_for = _r_ready_series(adjust_for)
+
+    t_level, _, _ = _classify(target, subj)
+    a_level, _, _ = _classify(adjust_for, subj)
+    if t_level in ("constant", "id_like") or a_level in ("constant", "id_like"):
+        # mirrors test_confounder's untestable-covariate handling; matters most for
+        # bootstrap_mediation, where a resample can by chance degenerate a between-
+        # subject factor to a single level
+        out = pd.Series({"R2": np.nan, "Pr(>F)": np.nan})
+        out.attrs["scheme"] = f"skip:target={t_level},adjust_for={a_level}"
+        return out
+
+    if subj is None:
+        out = _adonis_free_adjusted(distmat, adjust_for, target, seed, n_perm)
+        out.attrs["scheme"] = "free"
+        return out
+
+    if reduce is not None:
+        distmat, (adjust_for, target), _ = _reduce_to_subject_multi(
+            distmat, [adjust_for, target], subj, reduce
+        )
+        out = _adonis_free_adjusted(distmat, adjust_for, target, seed, n_perm)
+        out.attrs["scheme"] = f"reduce:{reduce}"
+        return out
+
+    if scheme == "auto":
+        # driven by target's own level only, like test_confounder -- adjust_for
+        # is a control term, not what decides the permutation scheme (see
+        # docstring: keying this off adjust_for too aliases a between-subject
+        # target out of the ANOVA table whenever adjust_for is within/mixed)
+        scheme = "within" if t_level in ("within", "mixed") else "between"
+
+    if scheme == "between":
+        try:
+            out = _adonis_between_adjusted(distmat, adjust_for, target, subj, seed, n_perm)
+        except ValueError as e:
+            warnings.warn(
+                f"{e} Falle automatisch auf reduce='medoid' zurück (1 Probe/Subject, "
+                "anschließend gewöhnliche freie Permutation)."
+            )
+            d_r, (m_r, t_r), _ = _reduce_to_subject_multi(
+                distmat, [adjust_for, target], subj, "medoid"
+            )
+            out = _adonis_free_adjusted(d_r, m_r, t_r, seed, n_perm)
+            out.attrs["scheme"] = "between->reduce:medoid"
+            return out
+    elif scheme in ("within", "mixed"):
+        out = _adonis_within_adjusted(distmat, adjust_for, target, subj, seed, n_perm)
     else:
         raise ValueError(f"unknown scheme {scheme!r}")
     out.attrs["scheme"] = scheme
@@ -614,3 +819,194 @@ def betadisper(distmat, group, *, subject=None, scheme: str = "auto",
     out.attrs["group_dist_to_centroid"] = means
     out.attrs["scheme"] = used
     return out
+
+
+# --------------------------------------------------------------------------- #
+# descriptive PERMANOVA-R2 mediation decomposition
+# --------------------------------------------------------------------------- #
+def _align_complete_case(distmat, exposure, mediator, subj):
+    """Joint-complete-case subset so total/direct models share one sample set."""
+    exposure = pd.Series(exposure).reset_index(drop=True)
+    mediator = pd.Series(mediator).reset_index(drop=True)
+    joint_na = exposure.isna().to_numpy() | mediator.isna().to_numpy()
+    if not joint_na.any():
+        return distmat, exposure, mediator, subj
+    idx = np.arange(distmat.shape[0])[~joint_na]
+    d = distmat[np.ix_(idx, idx)]
+    e = exposure.iloc[idx].reset_index(drop=True)
+    m = mediator.iloc[idx].reset_index(drop=True)
+    s = None if subj is None else subj[idx]
+    return d, e, m, s
+
+
+def mediation_decompose(
+    distmat,
+    exposure: pd.Series,
+    mediator: pd.Series,
+    seed: int = 42,
+    *,
+    subject=None,
+    scheme: str = "auto",
+    n_perm: int = 999,
+    reduce: str | None = None,
+):
+    """Descriptive PERMANOVA-R2 mediation decomposition of ``exposure``.
+
+    Splits ``exposure``'s community-level association (``R2_total``, from
+    the plain :func:`test_confounder`) into a part that survives adjusting
+    for ``mediator`` (``R2_direct``, from :func:`test_confounder_adjusted`)
+    and the remainder (``R2_indirect = R2_total - R2_direct``). Both models
+    are fit on the same joint-complete-case subset (rows where neither
+    ``exposure`` nor ``mediator`` is missing), so the two R2 values are
+    comparable.
+
+    Not a formal causal mediation estimate -- see the caveats in
+    :func:`test_confounder_adjusted`. Use this as a fast first look at
+    whether a candidate mediator changes ``exposure``'s PERMANOVA R2 at all;
+    follow up with :func:`bootstrap_mediation` for a resampling CI on
+    ``R2_indirect``, and with per-taxon causal mediation for anything you
+    plan to report as a mediation finding.
+
+    Returns a ``pandas.Series`` with ``R2_total``, ``pval_total``,
+    ``R2_direct``, ``pval_direct``, ``R2_indirect`` and ``R2_indirect_frac``
+    (``R2_indirect / R2_total``; ``nan`` if ``R2_total`` is ~0).
+    ``.attrs["scheme_total"]`` / ``["scheme_direct"]`` record what each
+    sub-model actually ran (see ``test_confounder``/``test_confounder_adjusted``).
+    """
+    distmat = square_array(distmat)
+    subj = _subject_array(distmat.shape[0], subject)
+    distmat, exposure, mediator, subj = _align_complete_case(distmat, exposure, mediator, subj)
+
+    total = test_confounder(distmat, exposure, seed, subject=subj,
+                             scheme=scheme, n_perm=n_perm, reduce=reduce)
+    direct = test_confounder_adjusted(distmat, exposure, mediator, seed,
+                                       subject=subj, scheme=scheme,
+                                       n_perm=n_perm, reduce=reduce)
+
+    r2_total, r2_direct = float(total["R2"]), float(direct["R2"])
+    r2_indirect = r2_total - r2_direct
+    out = pd.Series({
+        "R2_total": r2_total,
+        "pval_total": float(total["Pr(>F)"]),
+        "R2_direct": r2_direct,
+        "pval_direct": float(direct["Pr(>F)"]),
+        "R2_indirect": r2_indirect,
+        "R2_indirect_frac": r2_indirect / r2_total if r2_total > 1e-12 else np.nan,
+    })
+    out.attrs["scheme_total"] = total.attrs.get("scheme")
+    out.attrs["scheme_direct"] = direct.attrs.get("scheme")
+    return out
+
+
+def bootstrap_mediation(
+    distmat,
+    exposure: pd.Series,
+    mediator: pd.Series,
+    seed: int = 42,
+    *,
+    subject=None,
+    scheme: str = "auto",
+    n_boot: int = 1000,
+    reduce: str | None = None,
+    ci: float = 0.95,
+    verbose: bool = False,
+):
+    """Cluster-bootstrap percentile CI for :func:`mediation_decompose`.
+
+    Resamples the resampling *unit* with replacement ``n_boot`` times --
+    subjects if ``subject`` is given, individual samples otherwise -- refits
+    the total/direct models on each resample, and collects the bootstrap
+    distribution of ``R2_total``, ``R2_direct`` and ``R2_indirect``.
+
+    Each bootstrap replicate uses ``n_perm=2``, the minimum ``GUniFrac::adonis3``
+    needs to build a well-formed sequential ANOVA table for a 2/3-term model
+    (``n_perm=1`` makes it emit a malformed table and error for the
+    two-covariate ``m + x`` formulas this module uses); an adonis R2/pseudo-F
+    is otherwise a deterministic function of the (resampled) distance matrix
+    and design, computed before any permutation runs -- only the *p-value*
+    needs many permutations, and the p-value is not used here, so this still
+    keeps 1000+ replicates fast. Never read the per-replicate p-value as
+    meaningful; only ``observed`` (fit with the real ``n_perm``) has a valid
+    one. Warns if fewer than half the replicates succeed, since a replicate
+    that raises (e.g. a degenerate resample) is silently dropped rather than
+    failing the whole call -- see ``n_boot_ok`` in ``"summary"``.
+
+    When a subject is drawn more than once in a replicate, its copies are
+    relabelled (``f"{subject}__{k}"`` for the k-th draw) before refitting --
+    otherwise the ``within`` scheme's ``subj`` blocking factor or the
+    ``between`` scheme's whole-subject permutation would silently merge two
+    independent resampled copies back into one block, which is not what a
+    cluster bootstrap means.
+
+    Returns a dict: ``"observed"`` (the real, ``n_perm``-permutation
+    :func:`mediation_decompose` result), ``"boot"`` (a DataFrame with one row
+    per successful replicate: ``R2_total``, ``R2_direct``, ``R2_indirect``),
+    and ``"summary"`` (a DataFrame indexed by those three columns with
+    ``mean``, ``sd``, the ``ci``-level percentile interval, and
+    ``n_boot_ok``, the number of replicates that didn't error out).
+
+    This is a percentile bootstrap on a PERMANOVA R2 -- useful for "how much
+    does R2_indirect move around under resampling", not a substitute for a
+    causal-mediation sensitivity analysis (it says nothing about unmeasured
+    mediator-outcome confounding).
+    """
+    distmat = square_array(distmat)
+    subj = _subject_array(distmat.shape[0], subject)
+    distmat, exposure, mediator, subj = _align_complete_case(distmat, exposure, mediator, subj)
+
+    observed = mediation_decompose(distmat, exposure, mediator, seed,
+                                    subject=subj, scheme=scheme, n_perm=999,
+                                    reduce=reduce)
+
+    n = distmat.shape[0]
+    rng = np.random.default_rng(seed)
+    units = pd.unique(subj) if subj is not None else np.arange(n)
+
+    rows = []
+    for k in range(n_boot):
+        draw = rng.choice(units, size=len(units), replace=True)
+        if subj is None:
+            idx = draw
+            subj_boot = None
+        else:
+            idx_parts, subj_parts = [], []
+            for j, u in enumerate(draw):
+                pos = np.where(subj == u)[0]
+                idx_parts.append(pos)
+                subj_parts.append(np.full(len(pos), f"{u}__{j}", dtype=object))
+            idx = np.concatenate(idx_parts)
+            subj_boot = np.concatenate(subj_parts)
+
+        d_b = distmat[np.ix_(idx, idx)]
+        exp_b = exposure.iloc[idx].reset_index(drop=True)
+        med_b = mediator.iloc[idx].reset_index(drop=True)
+        try:
+            dec = mediation_decompose(d_b, exp_b, med_b, seed + k + 1,
+                                       subject=subj_boot, scheme=scheme,
+                                       n_perm=2, reduce=reduce)
+            rows.append(dec[["R2_total", "R2_direct", "R2_indirect"]])
+        except Exception as e:
+            if verbose:
+                print(f"bootstrap replicate {k} skipped: {e}")
+            continue
+
+    boot = pd.DataFrame(rows).reset_index(drop=True)
+    if len(boot) < n_boot / 2:
+        warnings.warn(
+            f"only {len(boot)}/{n_boot} bootstrap replicates succeeded; "
+            "the CI in 'summary' is based on fewer replicates than requested "
+            "(see the per-replicate errors with verbose=True)."
+        )
+    alpha = (1 - ci) / 2
+    summary = {}
+    for col in ("R2_total", "R2_direct", "R2_indirect"):
+        vals = boot[col].dropna().to_numpy() if col in boot else np.array([])
+        summary[col] = {
+            "mean": float(np.mean(vals)) if len(vals) else np.nan,
+            "sd": float(np.std(vals, ddof=1)) if len(vals) > 1 else np.nan,
+            f"ci{int(ci * 100)}_lo": float(np.quantile(vals, alpha)) if len(vals) else np.nan,
+            f"ci{int(ci * 100)}_hi": float(np.quantile(vals, 1 - alpha)) if len(vals) else np.nan,
+            "n_boot_ok": int(len(vals)),
+        }
+
+    return {"observed": observed, "boot": boot, "summary": pd.DataFrame(summary).T}
