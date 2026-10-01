@@ -12,7 +12,7 @@ adapters pull those tables out of an `AnnData` object.
 pip install -e .                 # core: numpy, pandas, scipy, statsmodels, scikit-learn
 pip install -e '.[anndata]'      # AnnData adapters
 pip install -e '.[umap]'         # calc_umap
-pip install -e '.[r]'            # adonis / NbClust / r x c Fisher (needs R + ape, phangorn, GUniFrac, NbClust)
+pip install -e '.[r]'            # adonis / NbClust / r x c Fisher (needs R + ape, phangorn, GUniFrac, NbClust; lme4, lmerTest, nlme for mixed models)
 pip install -e '.[plotting]'     # plot_read_depth (needs matplotlib)
 pip install -e '.[all,test]'
 ```
@@ -36,6 +36,7 @@ pip install -e '.[all,test]'
 | `cbrmb.rbackend.clustering` | `best_clusters` |
 | `cbrmb.rbackend.contingency` | `fisher_exact_rc` (r x c fallback for `fisher_test`) |
 | `cbrmb.rbackend.kernel` | `glmm_mirkat`, `cskat` (needs CRAN package `MiRKAT`) |
+| `cbrmb.rbackend.mixed` | `alpha_mixed`, `alpha_mixed_screen`, `AlphaMixedFit` (alpha-diversity mixed models; needs `lme4`, `lmerTest`, `nlme`) |
 
 The hot functions are re-exported at the top level:
 
@@ -170,6 +171,57 @@ estimate (no check of the no-exposure-induced-mediator-outcome-confounder
 assumption, no product-of-coefficients test) -- see the docstrings and
 [`docs/permanova_repeated_measures.md`](docs/permanova_repeated_measures.md)
 for the caveats and when to reach for per-taxon causal mediation instead.
+
+## Alpha diversity in longitudinal data (mixed models)
+
+`cbrmb.rbackend.mixed` fits one mixed model per alpha-diversity measure, with a
+random effect per subject. The family follows from the measure:
+
+| measure | `family` | model | `exp(beta)` |
+| --- | --- | --- | --- |
+| Shannon effective number (`exp(H)`) | `"lognormal"` | `lmerTest::lmer(log(y) ~ ...)`, Satterthwaite df | ratio of geometric means |
+| (rarefied / observed) richness | `"negbin"` | `lme4::glmer.nb`, log link | rate ratio |
+| underdispersed counts | `"poisson"` | `lme4::glmer` | rate ratio |
+
+`family="auto"` picks `negbin` for non-negative integers, otherwise `lognormal`.
+
+```python
+import cbrmb as mb
+
+df = adata.obs.join(adata.obsm["alpha_diversity"])      # one row per sample
+
+fit = mb.alpha_mixed(df, "Shannon.Effective", "group * time + age", subject="MT-ID",
+                     random="slope", time="time")        # (1 + time | MT-ID)
+fit.coef      # estimate, se, df, stat, pval, ci_low/high, ratio, ratio_low/high
+fit.terms     # marginal term tests (here only group:time)
+fit.random    # random-effect / residual SDs
+fit.info      # n_obs, n_subjects, aic, singular, theta, icc, formula, ...
+fit.predict(pd.DataFrame({"group": ["ctrl", "IBD"] * 2, "time": [0, 0, 1, 1]}))
+
+rich = mb.alpha_mixed(df, "Richness", "group * time", "MT-ID", depth="Nreads")
+
+# several measures at once, BH-FDR per term across measures
+coef, terms, fits = mb.alpha_mixed_screen(
+    df, {"Shannon.Effective": "lognormal", "Normalized.Richness": "negbin"},
+    "group * time", "MT-ID", depth="Nreads")
+```
+
+* **Random effects:** `random="intercept"` (default), `"slope"` (needs `time=`),
+  or any lme4 term string such as `"(1 | MT-ID) + (1 | site)"`.
+* **Serial correlation:** `correlation="car1"` (lognormal / gaussian) switches to
+  `nlme::lme` with a continuous-time AR(1), which also handles irregular visit spacing.
+* **Sequencing depth:** `depth=` adds centered `log(depth)` as a covariate;
+  `depth_as="offset"` (count families) models diversity per read instead.
+  Rarefied measures need neither.
+* **Term tests** respect marginality: Satterthwaite F for `lmer`, otherwise
+  likelihood-ratio tests from ML refits without the term.
+* R convergence / singular-fit messages come back as a Python `RuntimeWarning`
+  and in `fit.warnings`; `fit.r_fit` is the raw R model. If a `negbin` fit
+  reports a huge `theta`, the counts are not overdispersed -- use `"poisson"`.
+
+`glmmTMB` would add beta / Gamma families and more correlation structures, but
+building it from source needs `gfortran` and BLAS/LAPACK headers; it is not
+used here.
 
 ## Machine learning: nested CV, cross-cohort validation, k-TSP
 

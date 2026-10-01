@@ -35,6 +35,7 @@ from .palettes import PHYLUM_COLORS, phylum_colors, resolve_phylum
 from .plotting import phylum_handles, plot_read_depth
 from .pvalues import cut_p, fdr
 from .rbackend.kernel import cskat, glmm_mirkat
+from .rbackend.mixed import AlphaMixedFit, alpha_mixed, alpha_mixed_screen
 from .rbackend.permanova import (
     betadisper,
     bootstrap_mediation,
@@ -111,6 +112,10 @@ __all__ = [
     "betadisper",
     "cskat",
     "glmm_mirkat",
+    # alpha-diversity mixed models (R backend, lazy)
+    "alpha_mixed",
+    "alpha_mixed_screen",
+    "AlphaMixedFit",
     # clinical
     "bernoulli_var",
     "filter_bernoulli",
