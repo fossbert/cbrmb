@@ -58,6 +58,51 @@ def test_reduce_to_subject_medoid_and_first():
     assert vf.tolist() == ["a0", "b0"]
 
 
+def test_medoid_two_sample_tie_goes_to_most_central():
+    from cbrmb.rbackend.permanova import _reduce_picks
+    # A: s0/s1 tie within subject; s1 is closer to everything else -> s1
+    D = np.array([
+        [0, 2, 5, 5],
+        [2, 0, 1, 1],
+        [5, 1, 0, 1],
+        [5, 1, 1, 0],
+    ], dtype=float)
+    subject = np.array(["A", "A", "B", "C"])
+    assert _reduce_picks(D, subject, "medoid").tolist() == [1, 2, 3]
+    # same answer with the two A rows swapped
+    perm = [1, 0, 2, 3]
+    assert _reduce_picks(D[np.ix_(perm, perm)], subject[perm], "medoid").tolist() == [0, 2, 3]
+
+
+def _two_visit_data(seed=3, nsub=24):
+    """2 samples per subject (pre/post) plus a few subjects with 3 -> unbalanced."""
+    from scipy.spatial.distance import pdist, squareform
+    rng = np.random.default_rng(seed)
+    per = np.where(np.arange(nsub) < 4, 3, 2)
+    subject = np.repeat([f"P{i:02d}" for i in range(nsub)], per)
+    off = rng.normal(0, 2, size=(nsub, 6))
+    sid = np.repeat(np.arange(nsub), per)
+    X = off[sid] + rng.normal(0, 1.0, size=(len(sid), 6))
+    grp = np.repeat(rng.choice(["a", "b"], nsub), per)
+    X = X + (grp[:, None] == "b") * 0.8
+    D = squareform(pdist(X))
+    return D, subject, pd.Series(grp, name="group")
+
+
+@pytest.mark.parametrize("how", ["medoid"])
+def test_reduce_picks_invariant_to_row_order(how):
+    from cbrmb.rbackend.permanova import _reduce_to_subject
+    D, subject, grp = _two_visit_data()
+    rng = np.random.default_rng(0)
+    D0, v0, s0 = _reduce_to_subject(D, grp, subject, how)
+    for _ in range(5):
+        p = rng.permutation(len(subject))
+        D1, v1, s1 = _reduce_to_subject(D[np.ix_(p, p)], grp.iloc[p].reset_index(drop=True), subject[p], how)
+        np.testing.assert_array_equal(s0, s1)
+        np.testing.assert_allclose(D0, D1)
+        assert v0.tolist() == v1.tolist()
+
+
 # --- R-backed: skip if rpy2 / R packages unavailable ---------------------
 def _r_ready():
     try:
@@ -315,3 +360,25 @@ def test_bootstrap_mediation_with_subject_relabels_duplicates(rm_data):
     out = bootstrap_mediation(D, meta["group"], meta["sex"], subject=subject, n_boot=10)
     assert len(out["boot"]) <= 10
     assert out["summary"]["n_boot_ok"].min() >= 0
+
+
+@r_backend
+@pytest.mark.parametrize("kwargs", [{"reduce": "medoid"}, {"scheme": "between"}])
+def test_confounder_invariant_to_row_order(kwargs):
+    """Same R2 *and* p for any row order: reduce="medoid" and the automatic
+    between -> medoid fallback (unbalanced subjects)."""
+    import warnings
+    from cbrmb.rbackend.permanova import test_confounder
+
+    D, subject, grp = _two_visit_data()
+    rng = np.random.default_rng(0)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        ref = test_confounder(D, grp, subject=subject, **kwargs)
+        assert "medoid" in ref.attrs["scheme"]
+        for _ in range(3):
+            p = rng.permutation(len(subject))
+            r = test_confounder(D[np.ix_(p, p)], grp.iloc[p].reset_index(drop=True),
+                                subject=subject[p], **kwargs)
+            assert r["R2"] == pytest.approx(ref["R2"], abs=1e-12)
+            assert r["Pr(>F)"] == ref["Pr(>F)"]

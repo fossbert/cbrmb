@@ -20,6 +20,12 @@ correct restricted-permutation scheme (via the R ``permute`` package):
 Alternatively ``reduce="medoid"`` / ``"first"`` collapses to one sample per
 subject and runs an ordinary PERMANOVA -- pass it explicitly to apply it to
 *every* covariate regardless of level.
+
+The ``"medoid"`` reduction is independent of the row order: subjects are taken
+in sorted label order, and ties for the medoid -- unavoidable with two samples
+per subject, where both are equally "central" -- go to the sample closest to
+all samples overall. ``"first"`` deliberately keeps the first row per subject,
+so sort the input (e.g. by visit) to make it mean "baseline".
 """
 
 from __future__ import annotations
@@ -135,32 +141,54 @@ def remove_confounder_nan(distmat, confounder: pd.Series, subject=None):
     return d, c, np.asarray(subject)[idx]
 
 
+def _subject_order(subject: np.ndarray) -> list:
+    """Unique subjects, sorted by label -- so the reduced data (and with it the
+    permutation p-values for a given seed) does not depend on the row order."""
+    uniq = list(pd.unique(subject))
+    try:
+        return sorted(uniq)
+    except TypeError:  # mixed label types
+        return sorted(uniq, key=lambda s: (type(s).__name__, str(s)))
+
+
 def _reduce_picks(distmat, subject: np.ndarray, how: str) -> np.ndarray:
     """Row positions selecting one representative sample per subject.
 
-    ``"medoid"``: the within-subject sample closest (in ``distmat``) to its
-    other same-subject samples. ``"first"``: the first occurrence. Shared by
-    :func:`_reduce_to_subject` and the ``scheme="between"`` fallbacks (see
-    module docstring), where several aligned value series (e.g. a covariate
+    Subjects come out sorted by label. ``"medoid"``: the within-subject sample
+    with the smallest summed distance to its same-subject samples. Ties -- with
+    exactly two samples per subject the within-subject sums are *always* equal --
+    go to the sample with the smallest summed distance to *all* samples (the
+    most typical one), so the pick depends only on ``distmat``, never on the row
+    order. Only samples with identical distance profiles (indistinguishable to
+    any distance-based test) fall back to the first occurrence. ``"first"``: the
+    first occurrence per subject (row order is the caller's explicit choice).
+
+    Shared by :func:`_reduce_to_subject` and the ``scheme="between"`` fallbacks
+    (see module docstring), where several aligned value series (e.g. a covariate
     and a modifier) need to be subset by the exact same positions.
     """
-    order = pd.unique(subject)
-    pos = {s: np.where(subject == s)[0] for s in order}
+    if how not in ("first", "medoid"):
+        raise ValueError("reduce must be 'first' or 'medoid'")
+    order = _subject_order(subject)
+    pos = {s: np.flatnonzero(subject == s) for s in order}
 
     if how == "first":
-        picks = [pos[s][0] for s in order]
-    elif how == "medoid":
-        picks = []
-        for s in order:
-            ii = pos[s]
-            if len(ii) == 1:
-                picks.append(int(ii[0]))
-            else:
-                sub = distmat[np.ix_(ii, ii)]
-                picks.append(int(ii[int(np.argmin(sub.sum(axis=0)))]))
-    else:
-        raise ValueError("reduce must be 'first' or 'medoid'")
+        return np.asarray([pos[s][0] for s in order])
 
+    distmat = np.asarray(distmat, dtype=float)
+    centrality = distmat.sum(axis=0)
+    picks = []
+    for s in order:
+        ii = pos[s]
+        if len(ii) == 1:
+            picks.append(int(ii[0]))
+            continue
+        within = distmat[np.ix_(ii, ii)].sum(axis=0)
+        cand = ii[np.isclose(within, within.min(), rtol=1e-9, atol=1e-12)]
+        if len(cand) > 1:
+            c = centrality[cand]
+            cand = cand[np.isclose(c, c.min(), rtol=1e-9, atol=1e-12)]
+        picks.append(int(cand[0]))
     return np.asarray(picks)
 
 
@@ -168,7 +196,7 @@ def _reduce_to_subject(distmat, values: pd.Series, subject: np.ndarray, how: str
     """Collapse to one sample per subject; return ``(D, values, subjects)``."""
     picks = _reduce_picks(distmat, subject, how)
     vals = values.iloc[picks].reset_index(drop=True)
-    return distmat[np.ix_(picks, picks)], vals, pd.unique(subject)
+    return distmat[np.ix_(picks, picks)], vals, np.asarray(subject)[picks]
 
 
 def _reduce_to_subject_multi(distmat, values_list, subject: np.ndarray, how: str):
@@ -179,7 +207,7 @@ def _reduce_to_subject_multi(distmat, values_list, subject: np.ndarray, how: str
     """
     picks = _reduce_picks(distmat, subject, how)
     reduced = [v.iloc[picks].reset_index(drop=True) for v in values_list]
-    return distmat[np.ix_(picks, picks)], reduced, pd.unique(subject)
+    return distmat[np.ix_(picks, picks)], reduced, np.asarray(subject)[picks]
 
 
 # --------------------------------------------------------------------------- #

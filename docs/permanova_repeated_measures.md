@@ -113,7 +113,11 @@ treat conservatively as `within`).
   collapses each patient to one representative sample (medoid = the sample
   closest to that patient's own centroid) and runs an ordinary PERMANOVA on
   patient-level units — simpler, fully valid, but discards the longitudinal
-  resolution.
+  resolution. With exactly two samples per patient (pre/post) both are equally
+  close to the patient's centroid; the tie goes to the sample closest to *all*
+  samples, so the result never depends on how the input rows are sorted.
+  `reduce="first"` keeps the first row per patient — sort by visit beforehand
+  if "first" should mean baseline.
 * **Adjusting for several covariates at once with a genuine random subject
   effect** (rather than one covariate at a time) is a different model class —
   see `cbrmb.rbackend.kernel.glmm_mirkat` (`MiRKAT::GLMMMiRKAT`), which fits a
