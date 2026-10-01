@@ -24,7 +24,7 @@ dependencies = [
     "pandas>=2.2.0",       # groupby.apply semantics used by the *_test helpers
     "scipy>=1.11.0",
     "statsmodels>=0.13",   # multipletests
-    "scikit-learn>=1.1",   # MDS in ordination
+    "scikit-learn>=1.6",   # MDS in ordination; cbrmb.ml (validate_data, sklearn tags)
 ]
 
 [project.optional-dependencies]

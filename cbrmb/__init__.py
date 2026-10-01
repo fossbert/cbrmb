@@ -10,7 +10,9 @@ Submodules: :mod:`cbrmb.stats`, :mod:`cbrmb.filtering`, :mod:`cbrmb.adapters`,
 :mod:`cbrmb.clinical`, :mod:`cbrmb.pvalues`, :mod:`cbrmb.ordination`,
 :mod:`cbrmb.longitudinal`, :mod:`cbrmb.unifrac` (pure-Python Generalized
 UniFrac), :mod:`cbrmb.palettes` (phylum colour book), :mod:`cbrmb.plotting`
-(needs the ``plotting`` extra), and :mod:`cbrmb.rbackend` (needs the ``r`` extra).
+(needs the ``plotting`` extra), :mod:`cbrmb.ml` (nested CV, cross-cohort
+validation, k-TSP; use as ``mb.ml.nested_cv``), and :mod:`cbrmb.rbackend`
+(needs the ``r`` extra).
 """
 
 from __future__ import annotations
@@ -44,6 +46,7 @@ from .rbackend.permanova import (
     test_confounder_adjusted,
 )
 from .unifrac import generalized_unifrac
+from . import ml
 from .stats import (
     corr_test,
     fisher_test,

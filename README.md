@@ -29,6 +29,7 @@ pip install -e '.[all,test]'
 | `cbrmb.unifrac` | `generalized_unifrac`, `calc_gunifrac`, `read_newick`, `root_at_midpoint` (pure Python, no R) |
 | `cbrmb.ordination` | `calc_mds`, `calc_umap`, `ordination_report` (embedding + one-covariate PERMANOVA/betadisper; `.plot()` needs the `plotting` extra) |
 | `cbrmb.plotting` | `plot_read_depth` (needs the `plotting` extra) |
+| `cbrmb.ml` | `nested_cv`, `permutation_test`, `cross_cohort`, `KTSP`, `KTSPClassifier`, `PrevalenceThreshold`, `CLR`, `RelativeAbundance`, `RepeatedStratifiedGroupKFold` |
 | `cbrmb.longitudinal` | `david_recipe` and helpers (David et al. 2014) |
 | `cbrmb.rbackend.unifrac` | `calc_gunifrac` (legacy R path; `calc_gunifrac(..., backend="r")`) |
 | `cbrmb.rbackend.permanova` | `subject_variation`, `screen_confounder`, `test_confounder`, `test_confounder_adjusted`, `mediation_decompose`, `bootstrap_mediation`, `screen_effect_modifiers`, `betadisper`, `remove_confounder_nan` |
@@ -169,6 +170,92 @@ estimate (no check of the no-exposure-induced-mediator-outcome-confounder
 assumption, no product-of-coefficients test) -- see the docstrings and
 [`docs/permanova_repeated_measures.md`](docs/permanova_repeated_measures.md)
 for the caveats and when to reach for per-taxon causal mediation instead.
+
+## Machine learning: nested CV, cross-cohort validation, k-TSP
+
+`cbrmb.ml` (`mb.ml`) wraps any scikit-learn estimator or pipeline in the
+nested cross-validation design of Hermida, Gertz & Ruppin (Nat Commun 2022):
+an outer repeated stratified k-fold (default 4 x 25 = 100 models) for honest
+performance, and inside every outer training split an inner repeated CV
+(default 3 x 5) that tunes the *whole* pipeline. Put every data-dependent step
+(prevalence filter, transformation, feature selection, scaling) into the
+pipeline so it is learned on training data only.
+
+```python
+import numpy as np
+from sklearn.pipeline import Pipeline
+from sklearn.linear_model import LogisticRegression
+from sklearn.preprocessing import StandardScaler
+import cbrmb as mb
+from cbrmb.ml import PrevalenceThreshold, CLR, KTSP, KTSPClassifier
+
+enet = Pipeline([
+    ("prev", PrevalenceThreshold(0.1)),          # >= 10 % of training samples
+    ("clr", CLR()),
+    ("sc", StandardScaler()),
+    ("clf", LogisticRegression(penalty="elasticnet", solver="saga", l1_ratio=0.5,
+                               max_iter=5000)),
+])
+res = mb.ml.nested_cv(enet, {"clf__C": np.logspace(-3, 1, 5)}, X, y,
+                      groups=patient_id,         # optional: keep a patient's samples together
+                      external={"Paris": (X_paris, y_paris)},
+                      metadata=meta,             # carried into predictions, not fitted
+                      refit_final=True, n_jobs=8)
+
+res.summary()             # mean / sd / interval per dataset x metric (+ locked final model)
+res.scores                # one row per outer split
+res.predictions           # out-of-fold + external predictions (sample, y_true, y_pred, y_score, meta)
+res.best_params           # chosen hyperparameters per split
+res.cv_results            # inner grid per split (e.g. AUROC vs number of features)
+res.feature_stability()   # top-50 in >= 20 % of models + Holm-adjusted Wilcoxon on coefficients
+res.compare(clinical_only_res)   # paired Wilcoxon over the same 100 splits
+mb.ml.permutation_test(enet, grid, X, y, n_permutations=1000, observed=res)
+```
+
+`y` may be strings; the larger label (`classes_[1]`, e.g. `"PDAC"` vs
+`"Control"`) is the positive class. A `DummyClassifier` with `param_grid=None`
+gives the chance baseline over the same splits.
+
+**Cross-cohort validation** trains in each cohort (with nested CV inside it)
+and validates in the others; `scheme="loco"` trains on all but one cohort
+(stratified by label x cohort) and validates on the held-out one:
+
+```python
+cc = mb.ml.cross_cohort(pipe, grid, X, y, cohort=obs["cohort"],
+                        scheme=["pairwise", "loco"], groups=patient_id, n_jobs=8)
+cc.matrix("roc_auc")                 # train x test; diagonal = internal nested CV
+cc.matrix("roc_auc", kind="final")   # locked model refit on the whole training cohort
+cc.summary("roc_auc")                # mean / sd / interval per train x test
+cc.results["TUM"]                    # the full NestedCVResult behind each row
+```
+
+**k top scoring pairs** (`KTSP`, `KTSPClassifier`) is a pure-NumPy port of
+Bioconductor `switchBox` (`SWAP.Train.KTSP`). Pairs, scores, tie votes and
+pair indicators are byte-identical to R (tested against switchBox 1.44,
+including `handleTies` and the Wilcoxon pre-filter), and it is 10-25x
+faster. Because only the within-sample order of two taxa matters, k-TSP rules
+do not depend on sequencing depth or normalisation, which helps across cohorts.
+
+```python
+# pairs as features for any classifier, k tuned like any hyperparameter
+ktsp_lgr = Pipeline([("prev", PrevalenceThreshold(0.1)),
+                     ("ktsp", KTSP(handle_ties=True)),        # handle_ties for zero-inflated counts
+                     ("clf", LogisticRegression())])
+grid = {"ktsp__k": [5, 10, 25], "clf__C": [0.01, 0.1, 1]}
+
+# or the classic majority-vote classifier; a list for k = switchBox krange
+vote = Pipeline([("prev", PrevalenceThreshold(0.1)),
+                 ("ktsp", KTSPClassifier(k=list(range(3, 26, 2)), handle_ties=True))])
+
+fit = vote.fit(X, y)
+fit[-1].get_pairs(fit[:-1].get_feature_names_out())   # a, b, comparison, score, tie_vote
+```
+
+Differences from switchBox, all on purpose: when there are fewer disjoint pairs
+than `k`, switchBox fills up with self-pairs or `NA` and we stop instead.
+Choosing `k` from a range uses the same comparison as prediction (switchBox
+quietly uses `a >= b` there). Feature names show the comparison that is
+actually evaluated.
 
 ## Migrating from `utils.py` / `tstools.py`
 
