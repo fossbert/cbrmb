@@ -8,8 +8,9 @@ Flat re-exports of the most-used helpers so notebooks can do::
 
 Submodules: :mod:`cbrmb.stats`, :mod:`cbrmb.filtering`, :mod:`cbrmb.adapters`,
 :mod:`cbrmb.clinical`, :mod:`cbrmb.pvalues`, :mod:`cbrmb.ordination`,
-:mod:`cbrmb.longitudinal`, :mod:`cbrmb.unifrac` (pure-Python Generalized
-UniFrac), :mod:`cbrmb.palettes` (phylum colour book), :mod:`cbrmb.plotting`
+:mod:`cbrmb.longitudinal`, :mod:`cbrmb.paired` (find paired samples, deltas,
+shift distances), :mod:`cbrmb.distance` (PCoA, Mantel), :mod:`cbrmb.unifrac`
+(pure-Python Generalized UniFrac), :mod:`cbrmb.palettes` (phylum colour book), :mod:`cbrmb.plotting`
 (needs the ``plotting`` extra), :mod:`cbrmb.ml` (nested CV, cross-cohort
 validation, k-TSP; use as ``mb.ml.nested_cv``), and :mod:`cbrmb.rbackend`
 (needs the ``r`` extra).
@@ -28,9 +29,20 @@ from .adapters import (
     zotus,
 )
 from .clinical import bernoulli_var, filter_bernoulli
+from .distance import (
+    MantelResult,
+    as_distance_frame,
+    distance_matrix,
+    mantel_screen,
+    mantel_test,
+    pcoa,
+    subset_distance,
+    within_group_distances,
+)
 from .filtering import filter_features, filter_prevalence, filter_rel_abundance
 from .longitudinal import david_recipe
 from .ordination import OrdinationReport, calc_mds, calc_umap, ordination_report
+from .paired import Pairs, align_samples, find_pairs
 from .palettes import PHYLUM_COLORS, phylum_colors, resolve_phylum
 from .plotting import phylum_handles, plot_read_depth
 from .pvalues import cut_p, fdr
@@ -92,6 +104,19 @@ __all__ = [
     "calc_umap",
     "ordination_report",
     "OrdinationReport",
+    # paired samples
+    "find_pairs",
+    "Pairs",
+    "align_samples",
+    # distance matrices
+    "as_distance_frame",
+    "subset_distance",
+    "distance_matrix",
+    "pcoa",
+    "mantel_test",
+    "mantel_screen",
+    "MantelResult",
+    "within_group_distances",
     # palettes
     "PHYLUM_COLORS",
     "phylum_colors",

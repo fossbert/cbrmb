@@ -31,6 +31,8 @@ pip install -e '.[all,test]'
 | `cbrmb.plotting` | `plot_read_depth` (needs the `plotting` extra) |
 | `cbrmb.ml` | `nested_cv`, `permutation_test`, `cross_cohort`, `KTSP`, `KTSPClassifier`, `PrevalenceThreshold`, `CLR`, `RelativeAbundance`, `RepeatedStratifiedGroupKFold` |
 | `cbrmb.longitudinal` | `david_recipe` and helpers (David et al. 2014) |
+| `cbrmb.paired` | `find_pairs` -> `Pairs` (`.delta`, `.wide`, `.within_distance`, `.distance_matrix`, `.shift_vectors`, `.shift_distance`, `.delta_distance`, `.subset`, `.split`, `.long`), `align_samples`, `example_data` |
+| `cbrmb.distance` | `as_distance_frame`, `subset_distance`, `distance_matrix`, `pcoa`, `mantel_test`, `mantel_screen`, `within_group_distances` |
 | `cbrmb.rbackend.unifrac` | `calc_gunifrac` (legacy R path; `calc_gunifrac(..., backend="r")`) |
 | `cbrmb.rbackend.permanova` | `subject_variation`, `screen_confounder`, `test_confounder`, `test_confounder_adjusted`, `mediation_decompose`, `bootstrap_mediation`, `screen_effect_modifiers`, `betadisper`, `remove_confounder_nan` |
 | `cbrmb.rbackend.clustering` | `best_clusters` |
@@ -309,6 +311,154 @@ Choosing `k` from a range uses the same comparison as prediction (switchBox
 quietly uses `a >= b` there). Feature names show the comparison that is
 actually evaluated.
 
+## Paired samples: deltas, within-pair distances, Mantel
+
+The recurring chore: the metadata says which patient and visit each sample
+belongs to, and you need *per patient* the change between visits -- of alpha
+diversity, of every zOTU, of a covariate -- or the UniFrac distance between the
+two samples, or a patient x patient matrix of microbiome shifts for a Mantel
+test. `cbrmb.paired` does the matching once; everything after that is one call.
+
+**The model:** `find_pairs` takes the sample-level metadata (one row per sample,
+indexed by sample ID) and returns a `Pairs` object. Its methods take any
+*sample-indexed* data -- DataFrame, Series, AnnData, distance matrix -- and return
+*patient-indexed* results that line up with each other by index.
+
+### Try it on the bundled toy data
+
+```python
+>>> import cbrmb as mb
+>>> meta, alpha, counts = mb.paired.example_data()   # 3 patients, stool + saliva, visits 1/2
+>>> pairs = mb.find_pairs(meta, unit="case_id", visit="Visit", visits=[1, 2], by="sample_type")
+>>> pairs
+Pairs(4 units by ['case_id', 'sample_type']; samples per Visit -> 1: 4, 2: 4)
+  feces: 2
+  saliva: 2
+>>> pairs.table                      # p3 has no visit-2 stool sample -> no stool pair
+Visit                 1    2
+case_id sample_type
+p1      feces        s1   s2
+        saliva       s6   s7
+p2      feces        s3   s4
+p3      saliva       s9  s10
+>>> stool = pairs.subset(sample_type="feces")      # index is now just case_id
+>>> stool.delta(alpha)                             # visit 2 - visit 1
+         shannon  richness
+case_id
+p1          -0.5     -25.0
+p2           0.4      11.0
+>>> stool.delta(counts, transform="rel").round(2)  # change in relative abundance
+         otuA  otuB
+case_id
+p1        0.2  -0.2
+p2        0.0   0.0
+>>> stool.wide(alpha, "shannon")                   # side by side, for paired plots
+Visit      1    2
+case_id
+p1       3.0  2.5
+p2       4.0  4.4
+>>> D = mb.distance_matrix(alpha, standardize=True)  # any sample x sample matrix
+>>> stool.within_distance(D).round(2)
+case_id
+p1    0.88
+p2    0.57
+Name: distance_1_2, dtype: float64
+
+```
+
+### Real data: microbiome shift vs. QoL change and antibiotics (PDAC)
+
+```python
+import cbrmb as mb
+
+# 1. pairs: per patient and sample type, visits 1 and 2;
+#    a re-sequenced sample in the same slot -> keep the deeper one
+pairs = mb.find_pairs(meta, unit="case_id", visit="Visit", visits=[1, 2],
+                      by="sample_type", prefer="nreads")
+stool = pairs.subset(sample_type="feces")
+
+# 2. per-patient changes -- straight from the AnnData
+d_alpha = stool.delta(adata, ["Shannon.Effective", "Richness"], obsm="alpha_diversity")
+d_clr   = stool.delta(adata, layer="raw_counts", transform="clr")   # CLR over all zOTUs
+uf_v1v2 = stool.within_distance(adata, "gunifrac")                  # UniFrac V1 vs V2
+
+mb.corr_test(qol_delta.loc[d_alpha.index], d_alpha["Shannon.Effective"])
+mb.corr_test(qol_delta.loc[uf_v1v2.index], uf_v1v2)
+
+# 3. Mantel: does the microbiome move in the same direction in patients whose QoL changed alike?
+shift = stool.shift_distance(adata, "gunifrac")       # PCoA -> V2-V1 vectors -> patient x patient
+mb.mantel_test(shift, mb.distance_matrix(qol_delta, standardize=True), random_state=42)
+mb.mantel_screen(shift, qol_delta, random_state=42)   # one test per domain, + FDR
+
+# 4. covariates that are keyed by mt_id + visit instead of sample ID
+cov = mb.align_samples(covars.assign(sample_type="feces"), meta,
+                       on={"mt_id_stool": "mt_id", "sample_type": "sample_type", "visit": "Visit"})
+# align_samples: 57/58 rows matched to a sample; 1 without a sample: MTGJF3471/feces/3
+abx = stool.delta_distance(cov, "antibiotics", metric="cityblock")  # |delta_i - delta_j|
+mb.mantel_test(shift, abx)                            # aligns on the shared patients itself
+
+# 5. stool shift vs. saliva shift, and the same for every sample type in a loop
+shifts = {st: p.shift_distance(adata, "gunifrac") for st, p in pairs.split().items()}
+mb.mantel_test(shifts["feces"], shifts["saliva"])
+
+# 6. repeated-measures PERMANOVA on just the paired samples
+d = stool.distance_matrix(adata, "gunifrac")
+mb.screen_confounder(d, cov.loc[d.index, ["visit", "antibiotics", "ppi"]], subject=stool.long()["case_id"])
+```
+
+### What `Pairs` gives you
+
+| method | result | typical use |
+| --- | --- | --- |
+| `delta(data, cols, transform=)` | patient x feature, `late - early` | alpha / zOTU / covariate change; `transform="clr"`, `"log2"`, `"rel"` |
+| `wide(data, col)` | patient x visit | `PairedStripBox` |
+| `within_distance(dist, key)` | patient -> d(early, late) | how far did the microbiome move |
+| `shift_vectors(dist, key)` / `shift_distance(...)` | patient x PCo / patient x patient | direction of change; Mantel input |
+| `delta_distance(data, cols)` | patient x patient distance of deltas | Mantel input (QoL, binary covariates) |
+| `distance_matrix(dist, key)` + `long()` | sample x sample sub-matrix + sample -> patient/visit | PERMANOVA with `subject=` |
+| `subset(sample_type=...)`, `split()` | `Pairs` per sample type | one loop instead of copy-pasted cells |
+| `summary()`, `samples`, `complete()` | counts, sample IDs, the pair table | QC, `adata[pairs.samples]` |
+
+* **Duplicates** (re-runs, dilutions in the same patient-visit slot) warn and
+  list the clashes; `prefer="nreads"` keeps the deepest sample, `duplicates="error"` raises.
+* **More than two visits:** `visits=[1, 2, 3], min_visits=2`; every method takes
+  `early=` / `late=` (default first and last visit).
+* **Missing data** (a paired sample absent from the abundance table or the
+  distance matrix) drops that patient with a warning naming the samples -- never silently.
+* **Key matching** in `align_samples` treats `1`, `1.0` and `"1"` as equal and
+  reports unmatched rows; ambiguous keys raise.
+
+`cbrmb.distance` holds the label-aware building blocks: `pcoa`, `mantel_test`
+(returns `MantelResult(r, p, n)`, unpacks like a tuple, vectorized
+permutations), `mantel_screen`, `distance_matrix` (any `pdist` metric,
+`standardize=`), `subset_distance`, `within_group_distances` (all within-patient
+distances, for dense time series).
+
+Every docstring in `cbrmb.paired` / `cbrmb.distance` carries a runnable example
+(checked as doctests in the test suite); `help(mb.Pairs)` is a good start.
+
+### Before / after
+
+The stool part of the PDAC Mantel analysis used to be ~25 lines across seven
+cells: composite string keys (`mt_id + "_feces_" + visit.astype(int).astype(str)`)
+for `order_by_overlap`, `find_matched_visits(...).reset_index()...set_index()`,
+an `np.where(adata.obs_names == s)` loop for the sub-matrix, PCoA, a per-patient
+`iterrows` loop for the shift vectors, a distance matrix, `index.intersection`,
+and Mantel -- then everything copied for saliva. Now:
+
+```python
+cov = mb.align_samples(covars_stool.assign(sample_type="feces"), meta,
+                       on={"mt_id_stool": "mt_id", "sample_type": "sample_type", "visit": "Visit"})
+stool = mb.find_pairs(meta.loc[cov.index], "case_id", "Visit", [1, 2])
+mb.mantel_test(stool.shift_distance(adata, "gunifrac"),
+               stool.delta_distance(cov, "antibiotics", metric="cityblock"), random_state=42)
+```
+
+Verified on the PDAC data against the old `utils.py` recipe: shift distances
+agree to 1e-15; within-pair UniFrac, alpha and antibiotic deltas are identical;
+the Mantel r is identical (p differs only by the random permutation stream) and
+the test runs ~70x faster.
+
 ## Migrating from `utils.py` / `tstools.py`
 
 * `import utils as ut` -> `import cbrmb as mb`. Unchanged calls: `filter_zotu`,
@@ -325,3 +475,10 @@ actually evaluated.
 * `fisher_test` on tables larger than 2x2 needs the `r` extra; 2x2 uses SciPy.
 * `fdr` column now sits directly after `pval` in every `*_test` result.
 * Dropped (broken / unused): `test_confounder_maaslin`, `rpy2fisher`, `lme4`.
+* Paired-sample helpers: `find_matched_visits` + `compute_visit_deltas` ->
+  `find_pairs(...).delta(...)`; `order_by_overlap` / `align_on_overlap` with
+  composite string keys -> `align_samples`; `classical_pcoa` -> `pcoa`;
+  `pairwise_distance_matrix` -> `distance_matrix` (any `pdist` metric);
+  `binary_delta_distance` -> `Pairs.delta_distance(..., metric="cityblock")`;
+  `get_group_distances` -> `within_group_distances`; `mantel_test(seed=)` ->
+  `mantel_test(random_state=)`.
