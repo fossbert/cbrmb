@@ -29,6 +29,7 @@ pip install -e '.[all,test]'
 | `cbrmb.unifrac` | `generalized_unifrac`, `calc_gunifrac`, `read_newick`, `root_at_midpoint` (pure Python, no R) |
 | `cbrmb.ordination` | `calc_mds`, `calc_umap`, `ordination_report` (embedding + one-covariate PERMANOVA/betadisper; `.plot()` needs the `plotting` extra) |
 | `cbrmb.plotting` | `plot_read_depth` (needs the `plotting` extra) |
+| `cbrmb.survival` | `cox_added_value`, `cox_screen`, `outcome_free_score`, `concordance_index` (OS / PFS / EFS: added value over a clinical Cox model) |
 | `cbrmb.ml` | `nested_cv`, `permutation_test`, `cross_cohort`, `KTSP`, `KTSPClassifier`, `PrevalenceThreshold`, `CLR`, `RelativeAbundance`, `RepeatedStratifiedGroupKFold` |
 | `cbrmb.longitudinal` | `david_recipe` and helpers (David et al. 2014) |
 | `cbrmb.paired` | `find_pairs` -> `Pairs` (`.delta`, `.wide`, `.within_distance`, `.distance_matrix`, `.shift_vectors`, `.shift_distance`, `.delta_distance`, `.subset`, `.split`, `.long`), `align_samples`, `example_data` |
@@ -224,6 +225,68 @@ coef, terms, fits = mb.alpha_mixed_screen(
 `glmmTMB` would add beta / Gamma families and more correlation structures, but
 building it from source needs `gfortran` and BLAS/LAPACK headers; it is not
 used here.
+
+## Survival: what does the microbiome add to a clinical model?
+
+For OS, PFS or EFS in a small cohort, an outcome-trained high-dimensional
+model is not estimable: with 15-20 events a Cox model carries about two
+coefficients. `cbrmb.survival` therefore keeps the logic of Hermida et al.
+(clinical baseline, then ask what the microbiome adds) but tests a few
+**pre-specified** microbiome measures one at a time:
+
+```python
+import cbrmb as mb
+
+# clinical: one row per patient, indexed like the feature table
+#   efs_months, efs_event, stage_iv (0/1), ca19_9, crp, albumin, ldh, nlr, ecog, ...
+# features: e.g. Shannon, PCoA axes, 1-2 literature taxa (CLR)
+
+res = mb.cox_added_value(features, clinical, time="efs_months", event="efs_event",
+                         base="stage_iv", n_boot=1000)
+res.table   # per feature: hr (per SD) + CI, LR test p / fdr, epv,
+            # c_base, c_full, delta_c and their bootstrap-corrected versions
+res.base    # the base model (coefficients, HR, CI) for the report
+```
+
+* **Likelihood ratio test** (base vs base + feature, 1 df) is the primary
+  test. Both models are always fit on the same complete rows.
+* **Concordance**: Harrell's C of both models and the gain `delta_c`.
+  Apparent C is optimistic; `delta_c_corr` subtracts Harrell's bootstrap
+  optimism (the `rms::validate` algorithm: refit on each bootstrap sample,
+  C on the bootstrap sample minus C on the original data). `groups=` resamples
+  patients instead of rows.
+* **Events per variable**: `epv` = events / estimated coefficients of the full
+  model; below `min_epv` (default 10) a warning is issued.
+* `strata=` (e.g. treatment regimen) gives each level its own baseline hazard
+  without a coefficient; concordance is then computed within strata.
+
+A richer clinical baseline without extra degrees of freedom: compress the
+COMM-PACT prognostic variables into one score **without looking at the
+outcome** (Harrell's data reduction), and use it as the base:
+
+```python
+sc = mb.outcome_free_score(clinical, ["ca19_9", "crp", "ldh", "nlr", "bilirubin", "albumin",
+                                      "ecog", "n_met_sites"],
+                           log=["ca19_9", "crp", "ldh", "nlr", "bilirubin"],
+                           orient="ca19_9", impute="median")
+sc.loadings, sc.explained_variance, sc.n_imputed
+clinical["clin_score"] = sc.score
+mb.cox_added_value(features, clinical, time="os_months", event="os_event", base="clin_score")
+```
+
+Exploratory, taxon-wide: one adjusted Cox model per feature with BH-FDR,
+the survival counterpart of `mwu_test`. The results are hypotheses for a
+validation cohort, not findings:
+
+```python
+mb.cox_screen(clr_taxa, clinical, time="os_months", event="os_event", adjust="stage_iv")
+```
+
+Cox models use `statsmodels` `PHReg` with Efron ties. Coefficients, standard
+errors, log partial likelihood and the C-index match R
+`survival::coxph` / `concordance` (tested, including strata and tied times),
+and the bootstrap correction matches the same computation in R on identical
+resamples.
 
 ## Machine learning: nested CV, cross-cohort validation, k-TSP
 

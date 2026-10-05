@@ -8,7 +8,8 @@ Flat re-exports of the most-used helpers so notebooks can do::
 
 Submodules: :mod:`cbrmb.stats`, :mod:`cbrmb.filtering`, :mod:`cbrmb.adapters`,
 :mod:`cbrmb.clinical`, :mod:`cbrmb.pvalues`, :mod:`cbrmb.ordination`,
-:mod:`cbrmb.longitudinal`, :mod:`cbrmb.paired` (find paired samples, deltas,
+:mod:`cbrmb.longitudinal`, :mod:`cbrmb.survival` (added value of microbiome
+measures over a clinical Cox model), :mod:`cbrmb.paired` (find paired samples, deltas,
 shift distances), :mod:`cbrmb.distance` (PCoA, Mantel), :mod:`cbrmb.unifrac`
 (pure-Python Generalized UniFrac), :mod:`cbrmb.palettes` (phylum colour book), :mod:`cbrmb.plotting`
 (needs the ``plotting`` extra), :mod:`cbrmb.ml` (nested CV, cross-cohort
@@ -58,6 +59,7 @@ from .rbackend.permanova import (
     test_confounder,
     test_confounder_adjusted,
 )
+from .survival import concordance_index, cox_added_value, cox_screen, outcome_free_score
 from .unifrac import generalized_unifrac
 from . import ml
 from .stats import (
@@ -77,6 +79,11 @@ __all__ = [
     # pvalues
     "fdr",
     "cut_p",
+    # survival
+    "cox_added_value",
+    "cox_screen",
+    "outcome_free_score",
+    "concordance_index",
     # stats
     "kruskal_test",
     "mwu_test",
