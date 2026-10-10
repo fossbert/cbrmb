@@ -290,6 +290,8 @@ resamples.
 
 ## Machine learning: nested CV, cross-cohort validation, k-TSP
 
+*(`nested_cv`, `cross_cohort`, `permutation_test` are implemented in the package [`cvkit`](https://github.com/fossbert/cvkit) and k-TSP in [`ktspy`](https://github.com/fossbert/ktspy); `cbrmb.ml` re-exports them, only the microbiome transformers live here.)*
+
 `cbrmb.ml` (`mb.ml`) wraps any scikit-learn estimator or pipeline in the
 nested cross-validation design of Hermida, Gertz & Ruppin (Nat Commun 2022):
 an outer repeated stratified k-fold (default 4 x 25 = 100 models) for honest

@@ -2,12 +2,12 @@
 
 * :mod:`cbrmb.ml.ncv` -- :func:`nested_cv` for any sklearn estimator/pipeline
   (Hermida et al. 2022 design), model comparison, feature stability,
-  :func:`permutation_test`.
+  :func:`permutation_test`. Implemented in the package ``cvkit`` (re-exported).
 * :mod:`cbrmb.ml.cohorts` -- :func:`cross_cohort`: train in each cohort (or all
-  but one), validate on the others.
-* :mod:`cbrmb.ml.ktsp` -- k top scoring pairs, a pure-NumPy port of
-  ``switchBox``: :class:`KTSP` (pair features for any classifier) and
-  :class:`KTSPClassifier` (majority vote).
+  but one), validate on the others (``cvkit``).
+* :mod:`cbrmb.ml.ktsp` -- k top scoring pairs: :class:`KTSP` (pair features for
+  any classifier) and :class:`KTSPClassifier` (majority vote), from the package
+  ``ktspy`` (re-exported).
 * :mod:`cbrmb.ml.transformers` -- pipeline steps for count tables
   (:class:`PrevalenceThreshold`, :class:`RelativeAbundance`, :class:`CLR`).
 * :mod:`cbrmb.ml.splitters` -- :class:`RepeatedStratifiedGroupKFold`.

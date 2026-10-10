@@ -26,6 +26,7 @@ dependencies = [
     "statsmodels>=0.13",   # multipletests
     "scikit-learn>=1.6",   # MDS in ordination; cbrmb.ml (validate_data, sklearn tags)
     "ktspy>=0.1",          # k-TSP (cbrmb.ml.ktsp re-exports it)
+    "cvkit>=0.1",          # nested CV, cross-cohort validation (cbrmb.ml re-exports it)
 ]
 
 [project.optional-dependencies]
