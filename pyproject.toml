@@ -25,6 +25,7 @@ dependencies = [
     "scipy>=1.11.0",
     "statsmodels>=0.13",   # multipletests
     "scikit-learn>=1.6",   # MDS in ordination; cbrmb.ml (validate_data, sklearn tags)
+    "ktspy>=0.1",          # k-TSP (cbrmb.ml.ktsp re-exports it)
 ]
 
 [project.optional-dependencies]
