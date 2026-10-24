@@ -82,7 +82,12 @@ def calc_umap(dist, s1=None, *, index=None, random_state=42, **umap_kwargs):
         ) from exc
 
     dist, index = _as_distance_array(dist, index)
-    emb = UMAP(metric="precomputed", random_state=random_state, **umap_kwargs).fit_transform(dist)
+    umap_kwargs.setdefault("n_jobs", 1)  # a fixed random_state forces single-threaded anyway
+    with warnings.catch_warnings():
+        # precomputed metric is intended here; the n_jobs notice is redundant
+        warnings.filterwarnings("ignore", message="using precomputed metric", category=UserWarning)
+        warnings.filterwarnings("ignore", message="n_jobs value", category=UserWarning)
+        emb = UMAP(metric="precomputed", random_state=random_state, **umap_kwargs).fit_transform(dist)
     return _embedding_frame(emb, s1, index)
 
 
