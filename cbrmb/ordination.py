@@ -218,6 +218,17 @@ class OrdinationReport:
         Adds the PERMANOVA / betadisper summary as a corner annotation when
         ``annotate`` and a test was run. Creates an Axes when ``ax`` is None.
         Returns the Axes. Needs the ``plotting`` extra (matplotlib + cbrviz).
+
+        Fine-tuning: ``annotate_kwargs`` is merged onto the ``ax.text`` defaults
+        (bottom-left, ``x-small``, white box); ``legend_kwargs``, ``density_kwargs``
+        (e.g. ``levels``, ``linewidths``) and marker options (``s``, ``alpha``) go
+        to :func:`cbrviz.plot_embedding`.
+
+        Examples
+        --------
+        >>> rep.plot(ax=ax, annotate_kwargs={"y": 0.98, "va": "top"})  # doctest: +SKIP
+        >>> rep.plot(ax=ax, legend_kwargs={"loc": "lower right"},
+        ...          density_kwargs={"levels": 6})                      # doctest: +SKIP
         """
         try:
             import matplotlib.pyplot as plt
@@ -240,8 +251,9 @@ class OrdinationReport:
 
         if annotate and self.permanova is not None:
             akw = dict(
-                x=0.02, y=0.98, s=self.annotation(), transform=ax.transAxes,
-                va="top", ha="left", fontsize="x-small",
+                x=0.02, y=0.02, s=self.annotation(), transform=ax.transAxes,
+                va="bottom", ha="left", fontsize="x-small",
+                bbox=dict(boxstyle="round,pad=0.25", fc="white", ec="none", alpha=0.85),
             )
             akw.update(annotate_kwargs or {})
             ax.text(**akw)

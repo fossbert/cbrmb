@@ -96,6 +96,19 @@ for k, ax in zip(["feces", "saliva"], axs):
              title=f"{k} (n={sub.n_obs})")   # scatter + 2D densities + legend + R2/p corner
 ```
 
+Fine-tuning the panel: `.plot()` forwards keyword dicts to the pieces it draws.
+The PERMANOVA/betadisper note sits bottom-left and the legend top-left by default;
+if they collide with your data, move or restyle them per call:
+
+```python
+rep.plot(ax=ax,
+         annotate_kwargs={"y": 0.98, "va": "top", "fontsize": "small"},  # note -> top-left
+         legend_kwargs={"loc": "lower right", "ncol": 3},                # legend -> bottom-right
+         density_kwargs={"levels": 6, "linewidths": 0.8},                # more / bolder contours
+         s=30, alpha=0.6)                                                # marker size / opacity
+rep.plot(ax=ax, densities=False, annotate=False)                         # bare scatter + legend
+```
+
 `.plot()` delegates to `cbrviz.plot_embedding` (in the `plotting` extra); grab
 `rep.embedding` and call `cbrviz.plot_embedding` yourself for full control.
 `test=False` skips the R backend and returns just the embedding. For screening
