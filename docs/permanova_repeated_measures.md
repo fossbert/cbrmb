@@ -183,9 +183,8 @@ as a fast, assumption-light screen before investing further -- not a formal
 causal mediation estimate. It doesn't check whether there's a confounder of
 the mediator-outcome relationship that is itself affected by the exposure
 (a common real case: exposure causes both the mediator and a second variable
-that also shifts the community, e.g. disease severity driving both antibiotic
-use and cholestasis-related community shifts independently -- see the ColoBAC
-PDAC project's bilirubin/antibiotics discussion for a concrete instance).
+that also shifts the community, e.g. disease severity driving both medication
+use and a physiological change that independently shifts the community).
 R2 shares from sequential SS are also not strictly additive/causal
 quantities in the way a coefficient decomposition (a x b) would be, and a
 `between`-level `adjust_for` inside a `within`-blocked model is aliased by
@@ -194,6 +193,40 @@ nonzero `R2_indirect` here as "worth following up", not as a mediation
 finding to report -- for that, move to per-taxon or per-metric causal
 mediation (R: `mediation`, `CMAverse`, `regmedint`) with the usual
 sensitivity analysis for unmeasured mediator-outcome confounding.
+
+**Where this sits in the literature.** None of the pieces below is new; the
+decomposition just combines them for distance-based community data.
+
+* *R2 split.* `R2_total - R2_direct` is the distance-matrix analogue of the
+  "difference in coefficients" estimator (c - c') of the indirect effect, which
+  MacKinnon et al. (2002) found to perform as well as product-of-coefficients
+  estimators. In variation-partitioning terms (Peres-Neto et al. 2006) it is the
+  fraction of the exposure's R2 *shared* with the mediator. Those authors also
+  show that raw (unadjusted) R2 fractions are biased, which is why small
+  `R2_indirect` values near zero (including slightly negative ones) should be
+  read against the bootstrap CI rather than at face value.
+* *Bootstrap CI.* The indirect effect is a difference/product of estimates and
+  is not normally distributed, so resampling CIs are preferred over a
+  normal-theory standard error (Shrout & Bolger 2002; MacKinnon et al. 2004).
+  `bootstrap_mediation` uses the plain percentile interval. Resampling whole
+  subjects is the cluster bootstrap, which Field & Welsh (2007) show to be
+  consistent for clustered data under a random-effects structure.
+* *Distance-based mediation tests.* If you need a formal global test rather
+  than a descriptive share, `MedTest` (Zhang et al. 2018) is the closest
+  distance-matrix counterpart. Per-taxon alternatives with FDR control are
+  `LDM-med` (Yue & Hu 2022) and compositional mediation (Sohn & Li 2019).
+* *Causal interpretation.* The assumptions behind reading `R2_indirect` as a
+  mediated effect (no unmeasured exposure-mediator, mediator-outcome or
+  exposure-outcome confounding; Imai et al. 2010) and the exposure-induced
+  mediator-outcome confounder problem described above (VanderWeele et al. 2014)
+  are exactly what the R packages `mediation` (Tingley et al. 2014) and
+  `CMAverse` (Shi et al. 2021) address with sensitivity analyses.
+* *Why medication is the usual candidate.* Drug exposure is a well-documented
+  source of spurious case/control microbiome differences (Forslund et al. 2015;
+  Vujkovic-Cvijin et al. 2020), and antibiotic effects are time-dependent and
+  often incompletely reversed (Dethlefsen & Relman 2011). The exposure window
+  used to code a mediator therefore matters, and the coding should be defined
+  the same way in all groups.
 
 ## References
 
@@ -208,3 +241,70 @@ sensitivity analysis for unmeasured mediator-outcome confounding.
 * Zhan, X. et al. (2018). *A fast small-sample kernel independence test for
   microbiome community-level association analysis* / MiRKAT-family GLMM
   extension used by `glmm_mirkat`.
+
+### Mediation decomposition (section 8)
+
+*Distance-based regression and R2 partitioning*
+
+* Zapala, M.A. & Schork, N.J. (2006). *Multivariate regression analysis of
+  distance matrices for testing associations between gene expression patterns
+  and related variables.* PNAS 103(51), 19430-19435.
+  doi:10.1073/pnas.0609333103
+* Peres-Neto, P.R., Legendre, P., Dray, S. & Borcard, D. (2006). *Variation
+  partitioning of species data matrices: estimation and comparison of
+  fractions.* Ecology 87(10), 2614-2625.
+
+*Estimating and testing an indirect effect*
+
+* MacKinnon, D.P., Lockwood, C.M., Hoffman, J.M., West, S.G. & Sheets, V.
+  (2002). *A comparison of methods to test mediation and other intervening
+  variable effects.* Psychological Methods 7(1), 83-104.
+* Shrout, P.E. & Bolger, N. (2002). *Mediation in experimental and
+  nonexperimental studies: new procedures and recommendations.* Psychological
+  Methods 7(4), 422-445.
+* MacKinnon, D.P., Lockwood, C.M. & Williams, J. (2004). *Confidence limits for
+  the indirect effect: distribution of the product and resampling methods.*
+  Multivariate Behavioral Research 39(1), 99-128.
+  doi:10.1207/s15327906mbr3901_4
+* Field, C.A. & Welsh, A.H. (2007). *Bootstrapping clustered data.* J. R.
+  Stat. Soc. B 69(3), 369-390. doi:10.1111/j.1467-9868.2007.00593.x
+
+*Mediation methods for microbiome data*
+
+* Zhang, J., Wei, Z. & Chen, J. (2018). *A distance-based approach for testing
+  the mediation effect of the human microbiome.* Bioinformatics 34(11),
+  1875-1883.
+* Sohn, M.B. & Li, H. (2019). *Compositional mediation analysis for microbiome
+  studies.* Annals of Applied Statistics 13(1), 661-681.
+  doi:10.1214/18-AOAS1210
+* Yue, Y. & Hu, Y.-J. (2022). *A new approach to testing mediation of the
+  microbiome at both the community and individual taxon levels.*
+  Bioinformatics 38(12), 3173-3180. doi:10.1093/bioinformatics/btac310
+
+*Causal mediation (what the descriptive R2 split is not)*
+
+* Imai, K., Keele, L. & Tingley, D. (2010). *A general approach to causal
+  mediation analysis.* Psychological Methods 15(4), 309-334.
+  doi:10.1037/a0020761
+* VanderWeele, T.J., Vansteelandt, S. & Robins, J.M. (2014). *Effect
+  decomposition in the presence of an exposure-induced mediator-outcome
+  confounder.* Epidemiology.
+* Tingley, D., Yamamoto, T., Hirose, K., Keele, L. & Imai, K. (2014).
+  *mediation: R package for causal mediation analysis.* Journal of Statistical
+  Software 59(5), 1-38. doi:10.18637/jss.v059.i05
+* Shi, B., Choirat, C., Coull, B.A., VanderWeele, T.J. & Valeri, L. (2021).
+  *CMAverse: a suite of functions for reproducible causal mediation analyses.*
+  Epidemiology 32(5), e20-e22. doi:10.1097/EDE.0000000000001378
+
+*Medication as confounder/mediator in microbiome case-control studies*
+
+* Forslund, K. et al. (2015). *Disentangling type 2 diabetes and metformin
+  treatment signatures in the human gut microbiota.* Nature 528, 262-266.
+  doi:10.1038/nature15766
+* Vujkovic-Cvijin, I. et al. (2020). *Host variables confound gut microbiota
+  studies of human disease.* Nature 587, 448-454.
+  doi:10.1038/s41586-020-2881-9
+* Dethlefsen, L. & Relman, D.A. (2011). *Incomplete recovery and individualized
+  responses of the human distal gut microbiota to repeated antibiotic
+  perturbation.* PNAS 108(Suppl. 1), 4554-4561.
+  doi:10.1073/pnas.1000087107

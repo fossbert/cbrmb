@@ -88,7 +88,7 @@ group, and test that group" step: a UMAP/MDS embedding plus `test_confounder` an
 import cbrmb as mb
 
 for k, ax in zip(["feces", "saliva"], axs):
-    sub = adata_tum[adata_tum.obs["sample_type"] == k]
+    sub = adata[adata.obs["sample_type"] == k]
     rep = mb.ordination_report(sub, dist_key="gunifrac", group="group",
                                subject=None, method="umap", min_dist=0.5)
     rep.permanova            # n, n_groups, scheme, R2, pval, betadisper_F, betadisper_pval
@@ -186,7 +186,8 @@ This is a descriptive R2 decomposition, not a formal causal-mediation
 estimate (no check of the no-exposure-induced-mediator-outcome-confounder
 assumption, no product-of-coefficients test) -- see the docstrings and
 [`docs/permanova_repeated_measures.md`](docs/permanova_repeated_measures.md)
-for the caveats and when to reach for per-taxon causal mediation instead.
+for the caveats, the literature behind the decomposition and its bootstrap CI,
+and when to reach for per-taxon causal mediation instead.
 
 ## Alpha diversity in longitudinal data (mixed models)
 
@@ -206,24 +207,24 @@ import cbrmb as mb
 
 df = adata.obs.join(adata.obsm["alpha_diversity"])      # one row per sample
 
-fit = mb.alpha_mixed(df, "Shannon.Effective", "group * time + age", subject="MT-ID",
-                     random="slope", time="time")        # (1 + time | MT-ID)
+fit = mb.alpha_mixed(df, "Shannon.Effective", "group * time + age", subject="subject_id",
+                     random="slope", time="time")        # (1 + time | subject_id)
 fit.coef      # estimate, se, df, stat, pval, ci_low/high, ratio, ratio_low/high
 fit.terms     # marginal term tests (here only group:time)
 fit.random    # random-effect / residual SDs
 fit.info      # n_obs, n_subjects, aic, singular, theta, icc, formula, ...
 fit.predict(pd.DataFrame({"group": ["ctrl", "IBD"] * 2, "time": [0, 0, 1, 1]}))
 
-rich = mb.alpha_mixed(df, "Richness", "group * time", "MT-ID", depth="Nreads")
+rich = mb.alpha_mixed(df, "Richness", "group * time", "subject_id", depth="Nreads")
 
 # several measures at once, BH-FDR per term across measures
 coef, terms, fits = mb.alpha_mixed_screen(
     df, {"Shannon.Effective": "lognormal", "Normalized.Richness": "negbin"},
-    "group * time", "MT-ID", depth="Nreads")
+    "group * time", "subject_id", depth="Nreads")
 ```
 
 * **Random effects:** `random="intercept"` (default), `"slope"` (needs `time=`),
-  or any lme4 term string such as `"(1 | MT-ID) + (1 | site)"`.
+  or any lme4 term string such as `"(1 | subject_id) + (1 | site)"`.
 * **Serial correlation:** `correlation="car1"` (lognormal / gaussian) switches to
   `nlme::lme` with a continuous-time AR(1), which also handles irregular visit spacing.
 * **Sequencing depth:** `depth=` adds centered `log(depth)` as a covariate;
@@ -251,7 +252,7 @@ coefficients. `cbrmb.survival` therefore keeps the logic of Hermida et al.
 import cbrmb as mb
 
 # clinical: one row per patient, indexed like the feature table
-#   efs_months, efs_event, stage_iv (0/1), ca19_9, crp, albumin, ldh, nlr, ecog, ...
+#   efs_months, efs_event, stage_iv (0/1), crp, albumin, ldh, nlr, ecog, ...
 # features: e.g. Shannon, PCoA axes, 1-2 literature taxa (CLR)
 
 res = mb.cox_added_value(features, clinical, time="efs_months", event="efs_event",
@@ -273,15 +274,14 @@ res.base    # the base model (coefficients, HR, CI) for the report
 * `strata=` (e.g. treatment regimen) gives each level its own baseline hazard
   without a coefficient; concordance is then computed within strata.
 
-A richer clinical baseline without extra degrees of freedom: compress the
-COMM-PACT prognostic variables into one score **without looking at the
-outcome** (Harrell's data reduction), and use it as the base:
+A richer clinical baseline without extra degrees of freedom: compress several
+prognostic variables into one score **without looking at the outcome**
+(Harrell's data reduction), and use it as the base:
 
 ```python
-sc = mb.outcome_free_score(clinical, ["ca19_9", "crp", "ldh", "nlr", "bilirubin", "albumin",
-                                      "ecog", "n_met_sites"],
-                           log=["ca19_9", "crp", "ldh", "nlr", "bilirubin"],
-                           orient="ca19_9", impute="median")
+sc = mb.outcome_free_score(clinical, ["crp", "ldh", "nlr", "albumin", "ecog", "n_met_sites"],
+                           log=["crp", "ldh", "nlr"],
+                           orient="crp", impute="median")
 sc.loadings, sc.explained_variance, sc.n_imputed
 clinical["clin_score"] = sc.score
 mb.cox_added_value(features, clinical, time="os_months", event="os_event", base="clin_score")
@@ -330,7 +330,7 @@ enet = Pipeline([
 ])
 res = mb.ml.nested_cv(enet, {"clf__C": np.logspace(-3, 1, 5)}, X, y,
                       groups=patient_id,         # optional: keep a patient's samples together
-                      external={"Paris": (X_paris, y_paris)},
+                      external={"cohort_B": (X_b, y_b)},
                       metadata=meta,             # carried into predictions, not fitted
                       refit_final=True, n_jobs=8)
 
@@ -344,8 +344,8 @@ res.compare(clinical_only_res)   # paired Wilcoxon over the same 100 splits
 mb.ml.permutation_test(enet, grid, X, y, n_permutations=1000, observed=res)
 ```
 
-`y` may be strings; the larger label (`classes_[1]`, e.g. `"PDAC"` vs
-`"Control"`) is the positive class. A `DummyClassifier` with `param_grid=None`
+`y` may be strings; the larger label (`classes_[1]`, e.g. `"case"` vs
+`"control"`) is the positive class. A `DummyClassifier` with `param_grid=None`
 gives the chance baseline over the same splits.
 
 **Cross-cohort validation** trains in each cohort (with nested CV inside it)
@@ -358,7 +358,7 @@ cc = mb.ml.cross_cohort(pipe, grid, X, y, cohort=obs["cohort"],
 cc.matrix("roc_auc")                 # train x test; diagonal = internal nested CV
 cc.matrix("roc_auc", kind="final")   # locked model refit on the whole training cohort
 cc.summary("roc_auc")                # mean / sd / interval per train x test
-cc.results["TUM"]                    # the full NestedCVResult behind each row
+cc.results["cohort_A"]               # the full NestedCVResult behind each row
 ```
 
 **k top scoring pairs** (`KTSP`, `KTSPClassifier`) is a pure-NumPy port of
@@ -444,7 +444,7 @@ Name: distance_1_2, dtype: float64
 
 ```
 
-### Real data: microbiome shift vs. QoL change and antibiotics (PDAC)
+### Example workflow: microbiome shift vs. clinical change and medication
 
 ```python
 import cbrmb as mb
@@ -468,10 +468,10 @@ shift = stool.shift_distance(adata, "gunifrac")       # PCoA -> V2-V1 vectors ->
 mb.mantel_test(shift, mb.distance_matrix(qol_delta, standardize=True), random_state=42)
 mb.mantel_screen(shift, qol_delta, random_state=42)   # one test per domain, + FDR
 
-# 4. covariates that are keyed by mt_id + visit instead of sample ID
+# 4. covariates that are keyed by subject ID + visit instead of sample ID
 cov = mb.align_samples(covars.assign(sample_type="feces"), meta,
-                       on={"mt_id_stool": "mt_id", "sample_type": "sample_type", "visit": "Visit"})
-# align_samples: 57/58 rows matched to a sample; 1 without a sample: MTGJF3471/feces/3
+                       on={"subject_id_stool": "subject_id", "sample_type": "sample_type", "visit": "Visit"})
+# align_samples reports the rows that matched a sample and those that did not
 abx = stool.delta_distance(cov, "antibiotics", metric="cityblock")  # |delta_i - delta_j|
 mb.mantel_test(shift, abx)                            # aligns on the shared patients itself
 
@@ -517,8 +517,8 @@ Every docstring in `cbrmb.paired` / `cbrmb.distance` carries a runnable example
 
 ### Before / after
 
-The stool part of the PDAC Mantel analysis used to be ~25 lines across seven
-cells: composite string keys (`mt_id + "_feces_" + visit.astype(int).astype(str)`)
+A typical paired Mantel analysis used to be ~25 lines across seven
+cells: composite string keys (`subject_id + "_feces_" + visit.astype(int).astype(str)`)
 for `order_by_overlap`, `find_matched_visits(...).reset_index()...set_index()`,
 an `np.where(adata.obs_names == s)` loop for the sub-matrix, PCoA, a per-patient
 `iterrows` loop for the shift vectors, a distance matrix, `index.intersection`,
@@ -526,37 +526,13 @@ and Mantel -- then everything copied for saliva. Now:
 
 ```python
 cov = mb.align_samples(covars_stool.assign(sample_type="feces"), meta,
-                       on={"mt_id_stool": "mt_id", "sample_type": "sample_type", "visit": "Visit"})
+                       on={"subject_id_stool": "subject_id", "sample_type": "sample_type", "visit": "Visit"})
 stool = mb.find_pairs(meta.loc[cov.index], "case_id", "Visit", [1, 2])
 mb.mantel_test(stool.shift_distance(adata, "gunifrac"),
                stool.delta_distance(cov, "antibiotics", metric="cityblock"), random_state=42)
 ```
 
-Verified on the PDAC data against the old `utils.py` recipe: shift distances
-agree to 1e-15; within-pair UniFrac, alpha and antibiotic deltas are identical;
+Verified on a real dataset against the previous hand-written recipe: shift distances
+agree to 1e-15; within-pair UniFrac, alpha and medication deltas are identical;
 the Mantel r is identical (p differs only by the random permutation stream) and
 the test runs ~70x faster.
-
-## Migrating from `utils.py` / `tstools.py`
-
-* `import utils as ut` -> `import cbrmb as mb`. Unchanged calls: `filter_zotu`,
-  `filter_tax`, `mwu_test`, `kruskal_test`, `fisher_test`, `mwu_pairwise`,
-  `screen_confounder`, `test_confounder`, `best_clusters`, `cut_p`, `fdr`.
-* `import tstools as ts` -> `import cbrmb.longitudinal as ts`
-  (`ts.david_recipe(df)` is unchanged; helper `topN_otu_indices` renamed to
-  `top_otu_indices`, kwarg `topN` -> `top_frac`).
-* `filter_*`: keyword `return_bool` -> `return_mask`; `rel_abundance` -> `max_rel`.
-* `calc_umap` / `calc_mds`: `seed` -> `random_state`; new `index=` argument fills
-  the row labels, so `calc_umap(adata.obsp["gunifrac"], index=adata.obs_names)`
-  replaces the `.set_index(adata.obs_names)` follow-up.
-* `wilcoxon_test` now works (the original referenced undefined names).
-* `fisher_test` on tables larger than 2x2 needs the `r` extra; 2x2 uses SciPy.
-* `fdr` column now sits directly after `pval` in every `*_test` result.
-* Dropped (broken / unused): `test_confounder_maaslin`, `rpy2fisher`, `lme4`.
-* Paired-sample helpers: `find_matched_visits` + `compute_visit_deltas` ->
-  `find_pairs(...).delta(...)`; `order_by_overlap` / `align_on_overlap` with
-  composite string keys -> `align_samples`; `classical_pcoa` -> `pcoa`;
-  `pairwise_distance_matrix` -> `distance_matrix` (any `pdist` metric);
-  `binary_delta_distance` -> `Pairs.delta_distance(..., metric="cityblock")`;
-  `get_group_distances` -> `within_group_distances`; `mantel_test(seed=)` ->
-  `mantel_test(random_state=)`.
