@@ -43,7 +43,9 @@ __all__ = [
     "screen_confounder",
     "test_confounder",
     "test_confounder_adjusted",
+    "adjusted_r2_decomposition",
     "mediation_decompose",
+    "bootstrap_r2_decomposition",
     "bootstrap_mediation",
     "screen_effect_modifiers",
     "betadisper",
@@ -339,7 +341,7 @@ def _adonis_within(distmat, values, subject, seed, n_perm):
 
 # --------------------------------------------------------------------------- #
 # adonis runners -- adjusted (two-covariate, sequential) variants for
-# test_confounder_adjusted / mediation_decompose
+# test_confounder_adjusted / adjusted_r2_decomposition
 # --------------------------------------------------------------------------- #
 def _adonis_free_adjusted(distmat, adjust, target, seed, n_perm):
     """``y ~ adjust + target``, free permutation, sequential (Type I) SS."""
@@ -508,7 +510,7 @@ def test_confounder_adjusted(
         direct = test_confounder_adjusted(dist, exposure, mediator, subject=subj)
         r2_indirect = total["R2"] - direct["R2"]
 
-    :func:`mediation_decompose` packages exactly this pair; use it directly
+    :func:`adjusted_r2_decomposition` packages exactly this pair; use it directly
     unless you need the two calls separately.
 
     This is a descriptive PERMANOVA-R2 decomposition, not a formal causal
@@ -547,7 +549,7 @@ def test_confounder_adjusted(
 
     If either ``target`` or ``adjust_for`` is untestable (``"constant"`` or
     ``"id_like"``, e.g. after a degenerate resample in
-    :func:`bootstrap_mediation`), returns ``{"R2": nan, "Pr(>F)": nan}`` with
+    :func:`bootstrap_r2_decomposition`), returns ``{"R2": nan, "Pr(>F)": nan}`` with
     ``.attrs["scheme"]`` naming which one, instead of failing inside the R
     call -- mirroring :func:`test_confounder`'s handling of the same case.
     """
@@ -572,7 +574,7 @@ def test_confounder_adjusted(
     a_level, _, _ = _classify(adjust_for, subj)
     if t_level in ("constant", "id_like") or a_level in ("constant", "id_like"):
         # mirrors test_confounder's untestable-covariate handling; matters most for
-        # bootstrap_mediation, where a resample can by chance degenerate a between-
+        # bootstrap_r2_decomposition, where a resample can by chance degenerate a between-
         # subject factor to a single level
         out = pd.Series({"R2": np.nan, "Pr(>F)": np.nan})
         out.attrs["scheme"] = f"skip:target={t_level},adjust_for={a_level}"
@@ -867,7 +869,7 @@ def _align_complete_case(distmat, exposure, mediator, subj):
     return d, e, m, s
 
 
-def mediation_decompose(
+def adjusted_r2_decomposition(
     distmat,
     exposure: pd.Series,
     mediator: pd.Series,
@@ -878,7 +880,7 @@ def mediation_decompose(
     n_perm: int = 999,
     reduce: str | None = None,
 ):
-    """Descriptive PERMANOVA-R2 mediation decomposition of ``exposure``.
+    """Descriptive PERMANOVA-R2 decomposition of ``exposure`` given ``mediator``.
 
     Splits ``exposure``'s community-level association (``R2_total``, from
     the plain :func:`test_confounder`) into a part that survives adjusting
@@ -888,10 +890,17 @@ def mediation_decompose(
     ``exposure`` nor ``mediator`` is missing), so the two R2 values are
     comparable.
 
+    The computation does not know which role ``mediator`` plays. For a
+    plausible mediator, ``R2_indirect`` is a rough indication of how much of
+    the association runs through it; for a nuisance covariate (e.g. a
+    medication or batch variable) it is an adjustment-sensitivity analysis
+    and "indirect" only labels the shared share. The decomposition is
+    symmetric in this respect and says nothing about causal direction.
+
     Not a formal causal mediation estimate -- see the caveats in
     :func:`test_confounder_adjusted`. Use this as a fast first look at
     whether a candidate mediator changes ``exposure``'s PERMANOVA R2 at all;
-    follow up with :func:`bootstrap_mediation` for a resampling CI on
+    follow up with :func:`bootstrap_r2_decomposition` for a resampling CI on
     ``R2_indirect``, and with per-taxon causal mediation for anything you
     plan to report as a mediation finding.
 
@@ -926,7 +935,18 @@ def mediation_decompose(
     return out
 
 
-def bootstrap_mediation(
+def mediation_decompose(*args, **kwargs):
+    """Deprecated alias of :func:`adjusted_r2_decomposition`."""
+    warnings.warn(
+        "mediation_decompose was renamed to adjusted_r2_decomposition; "
+        "the old name will be removed in a future release.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
+    return adjusted_r2_decomposition(*args, **kwargs)
+
+
+def bootstrap_r2_decomposition(
     distmat,
     exposure: pd.Series,
     mediator: pd.Series,
@@ -939,7 +959,7 @@ def bootstrap_mediation(
     ci: float = 0.95,
     verbose: bool = False,
 ):
-    """Cluster-bootstrap percentile CI for :func:`mediation_decompose`.
+    """Cluster-bootstrap percentile CI for :func:`adjusted_r2_decomposition`.
 
     Resamples the resampling *unit* with replacement ``n_boot`` times --
     subjects if ``subject`` is given, individual samples otherwise -- refits
@@ -967,7 +987,7 @@ def bootstrap_mediation(
     cluster bootstrap means.
 
     Returns a dict: ``"observed"`` (the real, ``n_perm``-permutation
-    :func:`mediation_decompose` result), ``"boot"`` (a DataFrame with one row
+    :func:`adjusted_r2_decomposition` result), ``"boot"`` (a DataFrame with one row
     per successful replicate: ``R2_total``, ``R2_direct``, ``R2_indirect``),
     and ``"summary"`` (a DataFrame indexed by those three columns with
     ``mean``, ``sd``, the ``ci``-level percentile interval, and
@@ -982,9 +1002,9 @@ def bootstrap_mediation(
     subj = _subject_array(distmat.shape[0], subject)
     distmat, exposure, mediator, subj = _align_complete_case(distmat, exposure, mediator, subj)
 
-    observed = mediation_decompose(distmat, exposure, mediator, seed,
-                                    subject=subj, scheme=scheme, n_perm=999,
-                                    reduce=reduce)
+    observed = adjusted_r2_decomposition(distmat, exposure, mediator, seed,
+                                         subject=subj, scheme=scheme, n_perm=999,
+                                         reduce=reduce)
 
     n = distmat.shape[0]
     rng = np.random.default_rng(seed)
@@ -1009,9 +1029,9 @@ def bootstrap_mediation(
         exp_b = exposure.iloc[idx].reset_index(drop=True)
         med_b = mediator.iloc[idx].reset_index(drop=True)
         try:
-            dec = mediation_decompose(d_b, exp_b, med_b, seed + k + 1,
-                                       subject=subj_boot, scheme=scheme,
-                                       n_perm=2, reduce=reduce)
+            dec = adjusted_r2_decomposition(d_b, exp_b, med_b, seed + k + 1,
+                                            subject=subj_boot, scheme=scheme,
+                                            n_perm=2, reduce=reduce)
             rows.append(dec[["R2_total", "R2_direct", "R2_indirect"]])
         except Exception as e:
             if verbose:
@@ -1038,3 +1058,14 @@ def bootstrap_mediation(
         }
 
     return {"observed": observed, "boot": boot, "summary": pd.DataFrame(summary).T}
+
+
+def bootstrap_mediation(*args, **kwargs):
+    """Deprecated alias of :func:`bootstrap_r2_decomposition`."""
+    warnings.warn(
+        "bootstrap_mediation was renamed to bootstrap_r2_decomposition; "
+        "the old name will be removed in a future release.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
+    return bootstrap_r2_decomposition(*args, **kwargs)

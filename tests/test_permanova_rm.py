@@ -295,11 +295,11 @@ def test_confounder_adjusted_reduces_shared_variance(mediation_data):
 
 
 @r_backend
-def test_mediation_decompose_shape(mediation_data):
-    from cbrmb.rbackend.permanova import mediation_decompose
+def test_adjusted_r2_decomposition_shape(mediation_data):
+    from cbrmb.rbackend.permanova import adjusted_r2_decomposition
 
     D, meta = mediation_data
-    dec = mediation_decompose(D, meta["group"], meta["antibiotics"])
+    dec = adjusted_r2_decomposition(D, meta["group"], meta["antibiotics"])
     for k in ("R2_total", "pval_total", "R2_direct", "pval_direct",
               "R2_indirect", "R2_indirect_frac"):
         assert k in dec.index
@@ -307,13 +307,24 @@ def test_mediation_decompose_shape(mediation_data):
 
 
 @r_backend
-def test_mediation_decompose_with_subject(rm_data):
-    from cbrmb.rbackend.permanova import mediation_decompose
+def test_adjusted_r2_decomposition_with_subject(rm_data):
+    from cbrmb.rbackend.permanova import adjusted_r2_decomposition
 
     D, subject, meta = rm_data
-    dec = mediation_decompose(D, meta["group"], meta["sex"], subject=subject)
+    dec = adjusted_r2_decomposition(D, meta["group"], meta["sex"], subject=subject)
     assert dec.attrs["scheme_total"] == "between"
     assert np.isfinite(dec["R2_indirect"])
+
+
+@r_backend
+def test_mediation_decompose_is_deprecated_alias(mediation_data):
+    from cbrmb.rbackend.permanova import adjusted_r2_decomposition, mediation_decompose
+
+    D, meta = mediation_data
+    new = adjusted_r2_decomposition(D, meta["group"], meta["antibiotics"])
+    with pytest.warns(DeprecationWarning, match="adjusted_r2_decomposition"):
+        old = mediation_decompose(D, meta["group"], meta["antibiotics"])
+    assert old["R2_indirect"] == pytest.approx(new["R2_indirect"])
 
 
 @r_backend
@@ -323,24 +334,24 @@ def test_confounder_adjusted_between_target_within_mediator(rm_data):
     # (timepoint) used to force the within-subject-blocked model, where the
     # between-subject target has zero residual df and gets aliased out of the
     # ANOVA table entirely (KeyError on tab.loc["x"])
-    from cbrmb.rbackend.permanova import test_confounder_adjusted, mediation_decompose
+    from cbrmb.rbackend.permanova import test_confounder_adjusted, adjusted_r2_decomposition
 
     D, subject, meta = rm_data
     out = test_confounder_adjusted(D, meta["group"], meta["timepoint"], subject=subject)
     assert out.attrs["scheme"] == "between"
     assert np.isfinite(out["R2"]) and np.isfinite(out["Pr(>F)"])
 
-    dec = mediation_decompose(D, meta["group"], meta["timepoint"], subject=subject)
+    dec = adjusted_r2_decomposition(D, meta["group"], meta["timepoint"], subject=subject)
     assert dec.attrs["scheme_direct"] == "between"
     assert np.isfinite(dec["R2_indirect"])
 
 
 @r_backend
-def test_bootstrap_mediation_shapes(mediation_data):
-    from cbrmb.rbackend.permanova import bootstrap_mediation
+def test_bootstrap_r2_decomposition_shapes(mediation_data):
+    from cbrmb.rbackend.permanova import bootstrap_r2_decomposition
 
     D, meta = mediation_data
-    out = bootstrap_mediation(D, meta["group"], meta["antibiotics"], n_boot=20)
+    out = bootstrap_r2_decomposition(D, meta["group"], meta["antibiotics"], n_boot=20)
     assert set(out) == {"observed", "boot", "summary"}
     assert set(out["boot"].columns) == {"R2_total", "R2_direct", "R2_indirect"}
     assert len(out["boot"]) <= 20
@@ -353,11 +364,21 @@ def test_bootstrap_mediation_shapes(mediation_data):
 
 
 @r_backend
-def test_bootstrap_mediation_with_subject_relabels_duplicates(rm_data):
+def test_bootstrap_mediation_is_deprecated_alias(mediation_data):
     from cbrmb.rbackend.permanova import bootstrap_mediation
 
+    D, meta = mediation_data
+    with pytest.warns(DeprecationWarning, match="bootstrap_r2_decomposition"):
+        out = bootstrap_mediation(D, meta["group"], meta["antibiotics"], n_boot=5)
+    assert set(out) == {"observed", "boot", "summary"}
+
+
+@r_backend
+def test_bootstrap_r2_decomposition_with_subject_relabels_duplicates(rm_data):
+    from cbrmb.rbackend.permanova import bootstrap_r2_decomposition
+
     D, subject, meta = rm_data
-    out = bootstrap_mediation(D, meta["group"], meta["sex"], subject=subject, n_boot=10)
+    out = bootstrap_r2_decomposition(D, meta["group"], meta["sex"], subject=subject, n_boot=10)
     assert len(out["boot"]) <= 10
     assert out["summary"]["n_boot_ok"].min() >= 0
 

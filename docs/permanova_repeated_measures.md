@@ -162,21 +162,34 @@ R2_direct   = test_confounder_adjusted(dist, exposure, mediator, ...) # exposure
 R2_indirect = R2_total - R2_direct                                    # ~ shared with mediator
 ```
 
-`mediation_decompose` runs both calls on the same joint-complete-case subset
+`adjusted_r2_decomposition` runs both calls on the same joint-complete-case subset
 (so the two R2 values are comparable) and returns all of `R2_total`,
 `R2_direct`, `R2_indirect` and `R2_indirect_frac` in one call.
-`bootstrap_mediation` wraps this in a cluster bootstrap (resampling subjects
+`bootstrap_r2_decomposition` wraps this in a cluster bootstrap (resampling subjects
 with replacement when `subject=` is given, samples otherwise) to put a
 percentile CI on `R2_indirect`. Each bootstrap replicate runs with `n_perm=2`
 -- the minimum `GUniFrac::adonis3` needs to build a well-formed ANOVA table
 for the two-covariate `m + x` formula (`n_perm=1` makes it error) -- since the
 R2/pseudo-F point estimate does not otherwise depend on the permutation count;
 only its own p-value would, and that p-value is discarded, so this still keeps
-1000+ replicates fast. Only `bootstrap_mediation(...)["observed"]` (fit with
+1000+ replicates fast. Only `bootstrap_r2_decomposition(...)["observed"]` (fit with
 the real `n_perm`) has a meaningful p-value. A subject drawn more than once in a
 replicate is relabelled per draw (`f"{subject}__{k}"`) so the `within`/
 `between` restricted-permutation machinery treats each drawn copy as its own
 unit, as a cluster bootstrap requires.
+
+**Mediator or nuisance covariate?** The computation does not know which role
+`adjust_for` plays: `R2_indirect` is simply the part of the exposure's R2 that is
+shared with that variable. If the variable is a plausible mediator, read it as
+a rough indication of how much of the association runs through it. If it is a
+nuisance covariate (e.g. a medication or a batch variable that you want to rule
+out as an explanation, not as a biological pathway), the same numbers are an
+adjustment-sensitivity analysis: how much of the exposure's R2 remains once the
+covariate is accounted for (`R2_direct`), and whether it stays significant. The
+name "indirect" is then only a label for the shared share, and the text should
+say "adjusted for" rather than "mediated by". The decomposition is symmetric in
+this respect and says nothing about the causal direction between exposure and
+covariate.
 
 **What this is not.** It is a descriptive variance-share comparison, useful
 as a fast, assumption-light screen before investing further -- not a formal
@@ -208,7 +221,7 @@ decomposition just combines them for distance-based community data.
 * *Bootstrap CI.* The indirect effect is a difference/product of estimates and
   is not normally distributed, so resampling CIs are preferred over a
   normal-theory standard error (Shrout & Bolger 2002; MacKinnon et al. 2004).
-  `bootstrap_mediation` uses the plain percentile interval. Resampling whole
+  `bootstrap_r2_decomposition` uses the plain percentile interval. Resampling whole
   subjects is the cluster bootstrap, which Field & Welsh (2007) show to be
   consistent for clustered data under a random-effects structure.
 * *Distance-based mediation tests.* If you need a formal global test rather

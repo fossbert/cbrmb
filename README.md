@@ -35,7 +35,7 @@ pip install -e '.[all,test]'
 | `cbrmb.paired` | `find_pairs` -> `Pairs` (`.delta`, `.wide`, `.within_distance`, `.distance_matrix`, `.shift_vectors`, `.shift_distance`, `.delta_distance`, `.subset`, `.split`, `.long`), `align_samples`, `example_data` |
 | `cbrmb.distance` | `as_distance_frame`, `subset_distance`, `distance_matrix`, `pcoa`, `mantel_test`, `mantel_screen`, `within_group_distances` |
 | `cbrmb.rbackend.unifrac` | `calc_gunifrac` (legacy R path; `calc_gunifrac(..., backend="r")`) |
-| `cbrmb.rbackend.permanova` | `subject_variation`, `screen_confounder`, `test_confounder`, `test_confounder_adjusted`, `mediation_decompose`, `bootstrap_mediation`, `screen_effect_modifiers`, `betadisper`, `remove_confounder_nan` |
+| `cbrmb.rbackend.permanova` | `subject_variation`, `screen_confounder`, `test_confounder`, `test_confounder_adjusted`, `adjusted_r2_decomposition`, `bootstrap_r2_decomposition`, `screen_effect_modifiers`, `betadisper`, `remove_confounder_nan` |
 | `cbrmb.rbackend.clustering` | `best_clusters` |
 | `cbrmb.rbackend.contingency` | `fisher_exact_rc` (r x c fallback for `fisher_test`) |
 | `cbrmb.rbackend.kernel` | `glmm_mirkat`, `cskat` (needs CRAN package `MiRKAT`) |
@@ -165,8 +165,8 @@ Does a candidate mediator (e.g. antibiotic exposure) eat into an exposure's
 (e.g. disease group) community-level association? `test_confounder` gives the
 unadjusted "total" R2; `test_confounder_adjusted` fits the same PERMANOVA with
 the mediator entered first (sequential/Type I SS) and returns the exposure's
-"direct" R2 afterwards. `mediation_decompose` runs both and reports the gap;
-`bootstrap_mediation` wraps it in a cluster bootstrap for a CI on that gap.
+"direct" R2 afterwards. `adjusted_r2_decomposition` runs both and reports the gap;
+`bootstrap_r2_decomposition` wraps it in a cluster bootstrap for a CI on that gap.
 
 ```python
 import cbrmb as mb
@@ -175,12 +175,16 @@ import cbrmb as mb
 total  = mb.test_confounder(dist, meta["group"], subject=subj)
 direct = mb.test_confounder_adjusted(dist, meta["group"], meta["antibiotics"], subject=subj)
 
-dec = mb.mediation_decompose(dist, meta["group"], meta["antibiotics"], subject=subj)
+dec = mb.adjusted_r2_decomposition(dist, meta["group"], meta["antibiotics"], subject=subj)
 dec[["R2_total", "R2_direct", "R2_indirect", "R2_indirect_frac"]]
 
-boot = mb.bootstrap_mediation(dist, meta["group"], meta["antibiotics"], subject=subj, n_boot=1000)
+boot = mb.bootstrap_r2_decomposition(dist, meta["group"], meta["antibiotics"], subject=subj, n_boot=1000)
 boot["summary"]   # mean/sd/CI for R2_total, R2_direct, R2_indirect
 ```
+
+The same numbers also serve as an adjustment-sensitivity analysis when the
+variable is a nuisance covariate rather than a mediator; "indirect" then just
+labels the share of the exposure's R2 that the covariate accounts for.
 
 This is a descriptive R2 decomposition, not a formal causal-mediation
 estimate (no check of the no-exposure-induced-mediator-outcome-confounder

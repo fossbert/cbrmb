@@ -50,8 +50,10 @@ from .pvalues import cut_p, fdr
 from .rbackend.kernel import cskat, glmm_mirkat
 from .rbackend.mixed import AlphaMixedFit, alpha_mixed, alpha_mixed_screen
 from .rbackend.permanova import (
+    adjusted_r2_decomposition,
     betadisper,
     bootstrap_mediation,
+    bootstrap_r2_decomposition,
     mediation_decompose,
     screen_confounder,
     screen_effect_modifiers,
@@ -138,7 +140,9 @@ __all__ = [
     "screen_confounder",
     "test_confounder",
     "test_confounder_adjusted",
+    "adjusted_r2_decomposition",
     "mediation_decompose",
+    "bootstrap_r2_decomposition",
     "bootstrap_mediation",
     "screen_effect_modifiers",
     "betadisper",
