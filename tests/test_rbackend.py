@@ -21,3 +21,27 @@ def test_rbackend_submodules_import_without_r():
 
     assert hasattr(rb, "require_rpy2")
     assert hasattr(rb, "r_package")
+
+
+def test_r_backend_does_not_restore_workspace(tmp_path):
+    # a stale .RData in the working directory must not be loaded into the embedded R
+    import shutil
+    import subprocess
+    import sys
+
+    rscript = shutil.which("Rscript")
+    if rscript is None:
+        pytest.skip("needs R")
+    try:
+        import rpy2  # noqa: F401
+    except ImportError:
+        pytest.skip("needs rpy2")
+
+    subprocess.run([rscript, "--no-restore", "-e",
+                    "stale_obj <- 1; save(stale_obj, file='.RData')"],
+                   cwd=tmp_path, check=True, capture_output=True)
+    code = ("import cbrmb.rbackend as rb; ro = rb.require_rpy2()[0]; "
+            "print(','.join(ro.r('ls(all.names=TRUE)')))")
+    out = subprocess.run([sys.executable, "-c", code], cwd=tmp_path, check=True,
+                         capture_output=True, text=True)
+    assert "stale_obj" not in out.stdout
