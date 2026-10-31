@@ -151,7 +151,7 @@ def test_ordination_report_permanova_and_betadisper(three_group_dist):
     assert 0.0 <= p["R2"] <= 1.0
     assert 0.0 < p["pval"] <= 1.0
     assert p["R2"] > 0.1  # the groups are separated by construction
-    assert "R$^2$" in rep.annotation()
+    assert f"$R^2$ = {p['R2']:.1%}" in rep.annotation()
 
 
 @r_backend

@@ -206,8 +206,8 @@ class OrdinationReport:
         if p is None:
             return ""
         return (
-            f"PERMANOVA R$^2$={p['R2']:.2f}, p={p['pval']:.3f}\n"
-            f"betadisper p={p['betadisper_pval']:.2f}"
+            f"PERMANOVA $R^2$ = {p['R2']:.1%}, $p$ = {p['pval']:.3f}\n"
+            f"betadisper $p$ = {p['betadisper_pval']:.2f}"
         )
 
     def plot(self, ax=None, *, colors=None, order=None, densities=True,
