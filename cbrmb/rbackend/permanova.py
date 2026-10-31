@@ -635,13 +635,16 @@ def screen_confounder(
 ):
     """Run :func:`test_confounder` for every column of ``confounders``.
 
-    Without ``subject``: unchanged: skips single-level columns, returns
-    ``["var", "r2", "pval"]``.
+    Without ``subject``: skips single-level columns, returns
+    ``["var", "r2", "pval", "fdr"]`` in column order (not sorted). ``fdr`` is
+    Benjamini-Hochberg over the columns actually tested.
 
     With ``subject``: also classifies each column (:func:`subject_variation`),
     picks the restricted-permutation scheme per column, and returns
     ``["var", "level", "n", "scheme", "r2", "pval", "fdr"]`` sorted by ``pval``.
     """
+    from ..pvalues import fdr
+
     if subject is None:
         rows = []
         for name, values in confounders.items():
@@ -654,9 +657,10 @@ def screen_confounder(
             except Exception as e:
                 if verbose:
                     print(f"Skipping {name}: {e}")
-        return pd.DataFrame(rows, columns=("var", "r2", "pval"))
-
-    from ..pvalues import fdr
+        out = pd.DataFrame(rows, columns=("var", "r2", "pval"))
+        if len(out):
+            out["fdr"] = fdr(out["pval"])
+        return out
 
     n = square_array(distmat).shape[0]
     subj = _subject_array(n, subject)

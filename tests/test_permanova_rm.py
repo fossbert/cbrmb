@@ -174,7 +174,8 @@ def test_screen_confounder_output_shapes(rm_data):
     D, subject, meta = rm_data
 
     legacy = screen_confounder(D, meta, verbose=False)
-    assert list(legacy.columns) == ["var", "r2", "pval"]
+    assert list(legacy.columns) == ["var", "r2", "pval", "fdr"]
+    assert (legacy["fdr"] >= legacy["pval"] - 1e-12).all()
 
     rm = screen_confounder(D, meta, subject=subject, verbose=False)
     assert list(rm.columns) == ["var", "level", "n", "scheme", "r2", "pval", "fdr"]
